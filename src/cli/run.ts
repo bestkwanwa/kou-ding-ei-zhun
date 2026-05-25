@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { Agent } from "../agent/index.js";
 import { allTools } from "../tools/index.js";
+import { createModelFactory } from "../llm/index.js";
 import type { AppConfig } from "../config/index.js";
 
 export interface RunOptions {
@@ -14,9 +15,10 @@ export async function runAgent(
   opts: RunOptions
 ): Promise<void> {
   const tools = opts.toolsEnabled ? allTools : [];
+  const factory = createModelFactory(config);
+  const model = factory(config.model);
 
-  // TODO: pass config to Agent after Vercel AI SDK integration
-  const agent = new Agent(config, tools, {
+  const agent = new Agent(model, tools, {
     cwd: config.cwd,
     verbose: opts.verbose,
   });

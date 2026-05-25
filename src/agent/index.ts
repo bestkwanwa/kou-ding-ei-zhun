@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Tool } from "../tools/types.js";
 
 export interface AgentOptions {
@@ -7,7 +8,7 @@ export interface AgentOptions {
   maxIterations?: number;
 }
 
-const SYSTEM_PROMPT = `You are an expert coding agent. You help users with software engineering tasks.
+export const SYSTEM_PROMPT = `You are an expert coding agent. You help users with software engineering tasks.
 
 You can:
 - Read, write, and edit files
@@ -23,19 +24,19 @@ When making changes:
 Working directory: `;
 
 export class Agent {
+  private model: LanguageModelV3;
   private tools: Tool[];
   private options: AgentOptions;
 
-  constructor(_provider: unknown, tools: Tool[], options: AgentOptions) {
+  constructor(model: LanguageModelV3, tools: Tool[], options: AgentOptions) {
+    this.model = model;
     this.tools = tools;
     this.options = options;
   }
 
   async run(_prompt: string): Promise<void> {
-    // TODO: replace loop body with Effect + Stream for:
-    //   - LLM call (via Vercel AI SDK streamText)
-    //   - tool execution pipeline
-    //   - result accumulation and message history update
+    // TODO: implement agent loop with Effect + Stream
+    // this.model is ready for use with AI SDK streamText/generateText
     console.log(chalk.yellow("Agent loop not yet implemented."));
   }
 }

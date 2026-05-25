@@ -1,5 +1,4 @@
 import { exec } from "node:child_process";
-import path from "node:path";
 import { promisify } from "node:util";
 import type { Tool } from "./types.js";
 

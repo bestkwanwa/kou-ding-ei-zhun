@@ -1,4 +1,3 @@
-// TODO: replace with Vercel AI SDK
-// This module will serve as the integration point for AI SDK's streamText / generateText.
-
-export type { Message, LLMResponse, ToolCall, ToolDefinition } from "./types.js";
+export type { LanguageModelV3 } from "./types.js";
+export { createModelFactory, type ModelFactory } from "./provider.js";
+export { toAiSdkTools } from "./tool-adapter.js";
