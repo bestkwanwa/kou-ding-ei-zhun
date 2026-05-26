@@ -1,12 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { jsonSchema } from "ai";
 import type { Tool } from "./types.js";
 
 export const searchFilesTool: Tool = {
   name: "search_files",
   description:
     "Search for a text pattern in files. Returns matching file paths and lines.",
-  parameters: {
+  parameters: jsonSchema({
     type: "object",
     properties: {
       pattern: {
@@ -23,7 +24,7 @@ export const searchFilesTool: Tool = {
       },
     },
     required: ["pattern"],
-  },
+  }),
   async execute(args, ctx) {
     const dirPath = path.resolve(ctx.cwd, (args.directory as string) || ".");
     const pattern = new RegExp(args.pattern as string, "i");

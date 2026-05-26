@@ -1,11 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { jsonSchema } from "ai";
 import type { Tool } from "./types.js";
 
 export const writeFileTool: Tool = {
   name: "write_file",
   description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does.",
-  parameters: {
+  parameters: jsonSchema({
     type: "object",
     properties: {
       path: {
@@ -18,7 +19,7 @@ export const writeFileTool: Tool = {
       },
     },
     required: ["path", "content"],
-  },
+  }),
   async execute(args, ctx) {
     const filePath = path.resolve(ctx.cwd, args.path as string);
     const dir = path.dirname(filePath);

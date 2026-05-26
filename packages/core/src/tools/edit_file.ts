@@ -1,12 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { jsonSchema } from "ai";
 import type { Tool } from "./types.js";
 
 export const editFileTool: Tool = {
   name: "edit_file",
   description:
     "Replace a specific string in a file. Use this for targeted edits. The old_string must match exactly.",
-  parameters: {
+  parameters: jsonSchema({
     type: "object",
     properties: {
       path: {
@@ -23,7 +24,7 @@ export const editFileTool: Tool = {
       },
     },
     required: ["path", "old_string", "new_string"],
-  },
+  }),
   async execute(args, ctx) {
     const filePath = path.resolve(ctx.cwd, args.path as string);
     const content = await fs.readFile(filePath, "utf-8");

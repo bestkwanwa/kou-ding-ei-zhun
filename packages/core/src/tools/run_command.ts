@@ -1,5 +1,6 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { jsonSchema } from "ai";
 import type { Tool } from "./types.js";
 
 const execAsync = promisify(exec);
@@ -8,7 +9,7 @@ export const runCommandTool: Tool = {
   name: "run_command",
   description:
     "Execute a shell command and return its output. Use for running tests, builds, git commands, etc.",
-  parameters: {
+  parameters: jsonSchema({
     type: "object",
     properties: {
       command: {
@@ -21,7 +22,7 @@ export const runCommandTool: Tool = {
       },
     },
     required: ["command"],
-  },
+  }),
   async execute(args, ctx) {
     const timeout = (args.timeout as number) ?? 30_000;
     try {
