@@ -1,19 +1,15 @@
 {
   "name": "kou-ding-ei-zhun",
-  "version": "0.1.0",
+  "private": true,
   "description": "A coding agent CLI tool with multi-model support",
-  "type": "module",
-  "main": "dist/index.js",
-  "bin": {
-    "kda": "./dist/cli/index.js"
-  },
+  "license": "MIT",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/cli/index.ts",
-    "start": "node dist/cli/index.ts",
-    "lint": "eslint src/",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest"
+    "build": "pnpm -r run build",
+    "dev": "pnpm --filter @kda/cli run dev",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "clean": "pnpm -r run clean"
   },
   "keywords": [
     "coding-agent",
@@ -21,24 +17,8 @@
     "ai",
     "llm"
   ],
-  "license": "MIT",
-  "dependencies": {
-    "@ai-sdk/provider": "^3.0.10",
-    "ai": "^6.0.185",
-    "chalk": "^5.6.2",
-    "commander": "^14.0.3",
-    "dotenv": "^17.4.2",
-    "effect": "^3.21.2",
-    "zhipu-ai-provider": "^0.3.1",
-    "zod": "^4.4.3"
+  "engines": {
+    "node": ">=20"
   },
-  "devDependencies": {
-    "@eslint/js": "^9.17.0",
-    "@types/node": "^22.10.0",
-    "eslint": "^9.17.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
-    "typescript-eslint": "^8.18.0",
-    "vitest": "^3.0.0"
-  }
+  "packageManager": "pnpm@10.23.0+sha512.21c4e5698002ade97e4efe8b8b4a89a8de3c85a37919f957e7a0f30f38fbc5bbdd05980ffe29179b2fb6e6e691242e098d945d1601772cad0fef5fb6411e2a4b"
 }

@@ -2,8 +2,7 @@
 
 import { program } from "commander";
 import { runAgent } from "./run.js";
-import { loadConfig } from "../config/index.js";
-import { version } from "../version.js";
+import { loadConfig, version } from "@kda/core";
 
 program
   .name("kda")

@@ -37,6 +37,8 @@ export class Agent {
   async run(_prompt: string): Promise<void> {
     // TODO: implement agent loop with Effect + Stream
     // this.model is ready for use with AI SDK streamText/generateText
+    console.log(chalk.blue("Agent received prompt:"));
+    console.log(chalk.white(_prompt));
     console.log(chalk.yellow("Agent loop not yet implemented."));
   }
 }

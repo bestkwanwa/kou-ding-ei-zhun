@@ -1,8 +1,6 @@
 import chalk from "chalk";
-import { Agent } from "../agent/index.js";
-import { allTools } from "../tools/index.js";
-import { createModelFactory } from "../llm/index.js";
-import type { AppConfig } from "../config/index.js";
+import { Agent, allTools, createModelFactory } from "@kda/core";
+import type { AppConfig } from "@kda/core";
 
 export interface RunOptions {
   toolsEnabled: boolean;
