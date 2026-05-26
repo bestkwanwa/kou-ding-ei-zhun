@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { program } from "commander";
-import { runAgent } from "./run.js";
+import { runAgentCli } from "./run.js";
 import { loadConfig, version } from "@kda/core";
 
 program
@@ -26,7 +26,7 @@ program
       model: opts.model,
       cwd: opts.cwd,
     });
-    await runAgent(prompt, config, {
+    await runAgentCli(prompt, config, {
       toolsEnabled: opts.tools,
       verbose: opts.verbose,
     });

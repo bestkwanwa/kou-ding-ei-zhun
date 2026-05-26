@@ -1,13 +1,15 @@
 {
   "name": "@kda/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI entry point for kda coding agent",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "kda": "./dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
@@ -18,7 +20,8 @@
   "dependencies": {
     "@kda/core": "workspace:*",
     "chalk": "^5.6.2",
-    "commander": "^14.0.3"
+    "commander": "^14.0.3",
+    "effect": "^3.21.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -7,6 +7,25 @@ import type { Tool, ToolContext } from "../tools/types.js";
  * Re-interprets the JSON Schema parameters as Zod schemas
  * for the AI SDK tool() helper.
  */
+/**
+ * Converts our Tool[] into AI SDK tool definitions WITHOUT execute functions.
+ * Used when Effect manages the agent loop and tool execution.
+ * AI SDK only sees tool schemas for the LLM call, never executes tools itself.
+ */
+export function toAiSdkToolDefinitions(tools: Tool[]): ToolSet {
+  const result: ToolSet = {};
+
+  for (const t of tools) {
+    const zodSchema = jsonSchemaToZod(t.parameters);
+    result[t.name] = aiTool({
+      description: t.description,
+      parameters: zodSchema,
+    } as any) as ToolSet[string];
+  }
+
+  return result;
+}
+
 export function toAiSdkTools(tools: Tool[], ctx: ToolContext): ToolSet {
   const result: ToolSet = {};
 
