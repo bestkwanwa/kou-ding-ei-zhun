@@ -15,6 +15,7 @@ import type { Tool, ToolContext } from "../tools/types.js";
 import { toAiSdkToolDefinitions } from "../llm/tool-adapter.js";
 import { withRetry } from "../llm/retry.js";
 import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
+import { TokenBudgetDetector, type TokenBudgetConfig } from "./token-budget.js";
 
 // Debug logger — writes to .kda-debug.log in cwd
 function createLogger(cwd: string) {
@@ -36,6 +37,7 @@ export interface AgentOptions {
   verbose: boolean;
   maxIterations?: number;
   loopDetector?: Partial<LoopDetectorConfig>;
+  tokenBudget?: Partial<TokenBudgetConfig>;
 }
 
 export const SYSTEM_PROMPT = `You are an expert coding agent. You help users with software engineering tasks.
@@ -102,6 +104,7 @@ export function runAgent(
   const maxIterations = options.maxIterations ?? 50;
   const log = createLogger(options.cwd);
   const detector = new LoopDetector(options.loopDetector);
+  const tokenBudget = new TokenBudgetDetector(options.tokenBudget);
 
   // Run one round of tool-calling loop until the model stops calling tools
   const runToolLoop = (
@@ -189,6 +192,15 @@ export function runAgent(
                 case "start-step":
                   break;
                 case "finish-step":
+                  tokenBudget.recordUsage(event.usage);
+                  {
+                    const u = tokenBudget.getAccumulated();
+                    const step = event.usage;
+                    const inTok = step.inputTokens ?? 0;
+                    const outTok = step.outputTokens ?? 0;
+                    const budget = tokenBudget.check().budget;
+                    process.stderr.write(chalk.gray(`\n[Tokens: ${u}/${budget} (+${inTok}↑ ${outTok}↓)]\n`));
+                  }
                   if (options.verbose) {
                     console.log(chalk.gray(`[finish-step] reason=${event.finishReason}`));
                   }
@@ -307,6 +319,14 @@ export function runAgent(
           return { messages: newMessages, iteration: state.iteration + 1, done: true };
         }
 
+        // Token budget check
+        const budgetResult = tokenBudget.check();
+        if (budgetResult.exceeded) {
+          log.log(`[token-budget] exceeded: ${budgetResult.message}`);
+          console.log(chalk.yellow(`\n[Token budget exceeded: ${budgetResult.message}]`));
+          return { messages: newMessages, iteration: state.iteration + 1, done: true };
+        }
+
         log.log(`[loop] tools executed, messages=${newMessages.length}, next iteration=${state.iteration + 1}`);
 
         return {
@@ -331,11 +351,15 @@ export function runAgent(
     const userInput = createUserInput();
     let history: ModelMessage[] = [];
 
-    // First message from initial prompt
-    const firstUserMsg: ModelMessage = { role: "user", content: initialPrompt };
-    log.log(`[conv] first prompt:`, initialPrompt);
-    history = yield* runToolLoop([firstUserMsg]);
-    log.log(`[conv] first turn done, history=${history.length} messages`);
+    // First message from initial prompt (skip if empty → go straight to interactive)
+    if (initialPrompt.trim()) {
+      const firstUserMsg: ModelMessage = { role: "user", content: initialPrompt };
+      log.log(`[conv] first prompt:`, initialPrompt);
+      history = yield* runToolLoop([firstUserMsg]);
+      log.log(`[conv] first turn done, history=${history.length} messages`);
+    } else {
+      log.log(`[conv] no initial prompt, entering interactive mode`);
+    }
 
     // Continuous conversation
     while (true) {
