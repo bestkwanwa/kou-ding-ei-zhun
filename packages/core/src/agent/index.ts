@@ -13,6 +13,7 @@ import {
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Tool, ToolContext } from "../tools/types.js";
 import { toAiSdkToolDefinitions } from "../llm/tool-adapter.js";
+import { withRetry } from "../llm/retry.js";
 import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
 
 // Debug logger — writes to .kda-debug.log in cwd
@@ -120,19 +121,21 @@ export function runAgent(
         log.log(`[request] tools:`, Object.keys(toolDefs).map((name) => ({ name, tool: toolDefs[name] })));
         log.log(`[request] messages:`, state.messages);
 
-        const result = streamText({
-          model,
-          system: SYSTEM_PROMPT + options.cwd,
-          messages: state.messages,
-          tools: toolDefs,
-        });
-
         // Process fullStream events
-        const { text, toolCalls } = yield* Effect.tryPromise({
-          try: async () => {
-            let collectedText = "";
-            const collectedToolCalls: ToolCallPart[] = [];
-            for await (const event of result.fullStream) {
+        const { text, toolCalls } = yield* withRetry(
+          Effect.tryPromise({
+            try: async () => {
+              const result = streamText({
+                model,
+                system: SYSTEM_PROMPT + options.cwd,
+                messages: state.messages,
+                tools: toolDefs,
+                maxRetries: 0, // retry 完全由 Effect 管理，不让 AI SDK 自行重试
+              });
+
+              let collectedText = "";
+              const collectedToolCalls: ToolCallPart[] = [];
+              for await (const event of result.fullStream) {
               switch (event.type) {
                 // --- Text ---
                 case "text-delta":
@@ -209,7 +212,9 @@ export function runAgent(
             return { text: collectedText, toolCalls: collectedToolCalls };
           },
           catch: (e) => new AgentError("LLM streaming failed", e),
-        });
+          }),
+          log,
+        );
 
         // Log response: what the model returned
         log.log(`[response] text length=${text.length}, toolCalls=${toolCalls.length}`);

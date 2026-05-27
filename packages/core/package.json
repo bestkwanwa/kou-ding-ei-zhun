@@ -18,7 +18,9 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@ai-sdk/provider": "^3.0.10",
@@ -31,7 +33,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.7"
   },
   "license": "MIT"
 }
