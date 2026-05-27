@@ -13,6 +13,7 @@ import {
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import type { Tool, ToolContext } from "../tools/types.js";
 import { toAiSdkToolDefinitions } from "../llm/tool-adapter.js";
+import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
 
 // Debug logger — writes to .kda-debug.log in cwd
 function createLogger(cwd: string) {
@@ -33,6 +34,7 @@ export interface AgentOptions {
   cwd: string;
   verbose: boolean;
   maxIterations?: number;
+  loopDetector?: Partial<LoopDetectorConfig>;
 }
 
 export const SYSTEM_PROMPT = `You are an expert coding agent. You help users with software engineering tasks.
@@ -98,6 +100,7 @@ export function runAgent(
   const toolMap = new Map(tools.map((t) => [t.name, t]));
   const maxIterations = options.maxIterations ?? 50;
   const log = createLogger(options.cwd);
+  const detector = new LoopDetector(options.loopDetector);
 
   // Run one round of tool-calling loop until the model stops calling tools
   const runToolLoop = (
@@ -289,6 +292,15 @@ export function runAgent(
           { role: "assistant", content: assistantContent },
           { role: "tool", content: toolResults },
         ];
+
+        // Loop detection
+        detector.recordIteration(state.iteration, toolCalls, toolResults, text.length > 0);
+        const loopResult = detector.check();
+        if (loopResult.detected) {
+          log.log(`[loop-detector] ${loopResult.kind}: ${loopResult.message}`);
+          console.log(chalk.yellow(`\n[Loop detected: ${loopResult.message}]`));
+          return { messages: newMessages, iteration: state.iteration + 1, done: true };
+        }
 
         log.log(`[loop] tools executed, messages=${newMessages.length}, next iteration=${state.iteration + 1}`);
 
