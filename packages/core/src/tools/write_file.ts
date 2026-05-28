@@ -27,4 +27,5 @@ export const writeFileTool: Tool = {
     await fs.writeFile(filePath, args.content as string, "utf-8");
     return `File written: ${args.path}`;
   },
+  maxResultLength: 1_000,
 };

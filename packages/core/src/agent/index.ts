@@ -11,8 +11,8 @@ import {
   type ToolResultPart,
 } from "ai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import type { Tool, ToolContext } from "../tools/types.js";
-import { toAiSdkToolDefinitions } from "../llm/tool-adapter.js";
+import type { ToolContext } from "../tools/types.js";
+import type { ToolRegistry } from "../tools/registry.js";
 import { withRetry } from "../llm/retry.js";
 import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
 import { TokenBudgetDetector, type TokenBudgetConfig } from "./token-budget.js";
@@ -94,13 +94,13 @@ function createUserInput(): {
 
 export function runAgent(
   model: LanguageModelV3,
-  tools: Tool[],
+  registry: ToolRegistry,
   initialPrompt: string,
   options: AgentOptions,
 ): Effect.Effect<void, AgentError> {
   const toolCtx: ToolContext = { cwd: options.cwd };
-  const toolDefs: ToolSet = toAiSdkToolDefinitions(tools);
-  const toolMap = new Map(tools.map((t) => [t.name, t]));
+  const toolDefs: ToolSet = registry.toAiSdkDefinitions();
+  const parallelizableNames = registry.getParallelizableToolNames();
   const maxIterations = options.maxIterations ?? 50;
   const log = createLogger(options.cwd);
   const detector = new LoopDetector(options.loopDetector);
@@ -248,45 +248,73 @@ export function runAgent(
         }
 
         // Execute tools
-        const toolResults: ToolResultPart[] = yield* Effect.all(
-          toolCalls.map((tc) =>
-            Effect.gen(function* () {
-              const tool = toolMap.get(tc.toolName);
-              if (!tool) {
-                log.log(`[tool-error] unknown tool: ${tc.toolName}`);
-                return {
-                  type: "tool-result" as const,
-                  toolCallId: tc.toolCallId,
-                  toolName: tc.toolName,
-                  output: {
-                    type: "text" as const,
-                    value: `Error: unknown tool "${tc.toolName}"`,
-                  },
-                };
-              }
-
-              const output = yield* Effect.tryPromise({
-                try: () =>
-                  tool.execute(tc.input as Record<string, unknown>, toolCtx),
-                catch: (e) => new AgentError(`Tool "${tc.toolName}" failed`, e),
-              }).pipe(
-                Effect.catchTag("AgentError", (e) =>
-                  Effect.succeed(`Error: ${e.message}`),
-                ),
-              );
-
-              log.log(`[tool-result] ${tc.toolName}:`, output);
-
+        const executeTool = (tc: ToolCallPart) =>
+          Effect.gen(function* () {
+            const tool = registry.get(tc.toolName);
+            if (!tool) {
+              log.log(`[tool-error] unknown tool: ${tc.toolName}`);
               return {
                 type: "tool-result" as const,
                 toolCallId: tc.toolCallId,
                 toolName: tc.toolName,
-                output: { type: "text" as const, value: output },
+                output: {
+                  type: "text" as const,
+                  value: `Error: unknown tool "${tc.toolName}"`,
+                },
               };
-            }),
-          ),
-          { concurrency: "unbounded" },
-        );
+            }
+
+            // 提取关键参数用于显示
+            const args = tc.input as Record<string, unknown>;
+            const summary = [args.path, args.command, args.pattern].find((v) => typeof v === "string") ?? "";
+            process.stderr.write(chalk.blue(`  ↳ ${tc.toolName}${summary ? `(${summary})` : ""}`));
+
+            let output = yield* Effect.tryPromise({
+              try: () =>
+                tool.execute(tc.input as Record<string, unknown>, toolCtx),
+              catch: (e) => new AgentError(`Tool "${tc.toolName}" failed`, e),
+            }).pipe(
+              Effect.catchTag("AgentError", (e) =>
+                Effect.succeed(`Error: ${e.message}`),
+              ),
+            );
+
+            output = registry.truncateResult(tc.toolName, output);
+            log.log(`[tool-result] ${tc.toolName}:`, output);
+
+            const resultTag = output.startsWith("Error") ? chalk.red(" ✗") : chalk.green(` ✓ ${output.length}c`);
+            process.stderr.write(`${resultTag}\n`);
+
+            return {
+              type: "tool-result" as const,
+              toolCallId: tc.toolCallId,
+              toolName: tc.toolName,
+              output: { type: "text" as const, value: output },
+            };
+          });
+
+        // 分组执行：可并行的工具无限制并发，不可并行的串行
+        const parallelCalls = toolCalls.filter((tc) => parallelizableNames.has(tc.toolName));
+        const serialCalls = toolCalls.filter((tc) => !parallelizableNames.has(tc.toolName));
+
+        // 记录执行策略到 log
+        if (parallelCalls.length > 0 || serialCalls.length > 0) {
+          const parts: string[] = [];
+          if (parallelCalls.length > 0) {
+            parts.push(`${parallelCalls.length} parallel: ${parallelCalls.map((tc) => tc.toolName).join(", ")}`);
+          }
+          if (serialCalls.length > 0) {
+            parts.push(`${serialCalls.length} serial: ${serialCalls.map((tc) => tc.toolName).join(", ")}`);
+          }
+          log.log(`[exec] ${parts.join(" | ")}`);
+        }
+
+        const [parallelResults, serialResults] = yield* Effect.all([
+          Effect.all(parallelCalls.map(executeTool), { concurrency: "unbounded" }),
+          Effect.all(serialCalls.map(executeTool), { concurrency: 1 }),
+        ], { concurrency: 2 });
+
+        const toolResults: ToolResultPart[] = [...parallelResults, ...serialResults];
 
         // Build assistant content: text + tool calls
         const assistantContent: Array<

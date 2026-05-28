@@ -62,6 +62,9 @@ export const searchFilesTool: Tool = {
     await walk(dirPath);
     return results.join("\n") || "No matches found.";
   },
+  readOnly: true,
+  parallelizable: true,
+  maxResultLength: 10_000,
 };
 
 function globToRegex(glob: string): RegExp {

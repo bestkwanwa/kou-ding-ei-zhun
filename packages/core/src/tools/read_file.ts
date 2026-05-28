@@ -21,4 +21,7 @@ export const readFileTool: Tool = {
     const content = await fs.readFile(filePath, "utf-8");
     return content;
   },
+  readOnly: true,
+  parallelizable: true,
+  maxResultLength: 50_000,
 };

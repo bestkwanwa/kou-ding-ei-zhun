@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import { Effect } from "effect";
-import { runAgent, allTools, createModelFactory, AgentError, version } from "@kda/core";
+import { runAgent, createDefaultRegistry, ToolRegistry, createModelFactory, AgentError, version } from "@kda/core";
 import type { AppConfig } from "@kda/core";
 
 export interface RunOptions {
@@ -9,9 +9,10 @@ export interface RunOptions {
 }
 
 function printBanner(config: AppConfig) {
+  console.log("");
   console.log(chalk.bold.cyan(`  kda`) + chalk.gray(` v${version}`));
-  console.log(chalk.gray(`  model: ${config.provider}/${config.model}`));
-  console.log(chalk.gray(`  cwd:   ${config.cwd}`));
+  console.log(chalk.bold.cyan(`  model `) + chalk.gray(` ${config.provider}/${config.model}`));
+  console.log(chalk.bold.cyan(`  cwd `) + chalk.gray(` ${config.cwd}`));
   console.log("");
 }
 
@@ -22,11 +23,11 @@ export async function runAgentCli(
 ): Promise<void> {
   printBanner(config);
 
-  const tools = opts.toolsEnabled ? allTools : [];
+  const registry = opts.toolsEnabled ? createDefaultRegistry() : new ToolRegistry();
   const factory = createModelFactory(config);
   const model = factory(config.model);
 
-  const program = runAgent(model, tools, prompt, {
+  const program = runAgent(model, registry, prompt, {
     cwd: config.cwd,
     verbose: opts.verbose,
   });

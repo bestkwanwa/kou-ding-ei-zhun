@@ -44,4 +44,5 @@ export const editFileTool: Tool = {
     await fs.writeFile(filePath, updated, "utf-8");
     return `File edited: ${args.path}`;
   },
+  maxResultLength: 1_000,
 };

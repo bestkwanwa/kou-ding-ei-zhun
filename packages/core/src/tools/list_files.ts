@@ -22,4 +22,7 @@ export const listFilesTool: Tool = {
     const lines = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
     return lines.join("\n") || "(empty directory)";
   },
+  readOnly: true,
+  parallelizable: true,
+  maxResultLength: 10_000,
 };

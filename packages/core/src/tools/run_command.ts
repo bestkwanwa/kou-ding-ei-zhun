@@ -44,4 +44,5 @@ export const runCommandTool: Tool = {
       return parts.join("\n");
     }
   },
+  maxResultLength: 50_000,
 };
