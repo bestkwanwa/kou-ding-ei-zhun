@@ -54,12 +54,18 @@ export class ToolRegistry {
     return this._parallelizableNames;
   }
 
-  /** 截断工具结果到最大长度 */
+  /** 截断工具结果到最大长度，使用 Head/Tail 60/40 分割 */
   truncateResult(toolName: string, output: string): string {
     const tool = this.tools.get(toolName);
     const maxLen = tool?.maxResultLength ?? DEFAULT_MAX_RESULT_LENGTH;
     if (output.length <= maxLen) return output;
-    return output.slice(0, maxLen) + `\n...[truncated, ${output.length} chars total]`;
+    const headLen = Math.floor(maxLen * 0.6);
+    const tailLen = maxLen - headLen;
+    const omitted = output.length - maxLen;
+    const divider = `─── ...${omitted} chars omitted... ───`;
+    return (
+      output.slice(0, headLen) + `\n${divider}\n` + output.slice(-tailLen)
+    );
   }
 
   /** 已注册工具数量 */

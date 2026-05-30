@@ -5,7 +5,7 @@ import type { Tool } from "./types.js";
 
 export const readFileTool: Tool = {
   name: "read_file",
-  description: "Read the contents of a file. Returns the file content as a string.",
+  description: "Read the contents of a file. Large files are automatically truncated (head/tail split). Always try reading directly, no need to check file size first.",
   parameters: jsonSchema({
     type: "object",
     properties: {

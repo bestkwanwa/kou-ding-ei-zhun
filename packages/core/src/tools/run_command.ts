@@ -8,7 +8,7 @@ const execAsync = promisify(exec);
 export const runCommandTool: Tool = {
   name: "run_command",
   description:
-    "Execute a shell command and return its output. Use for running tests, builds, git commands, etc.",
+    "Execute a shell command and return its output. Use for running tests, builds, git commands, etc. Do NOT use this to read file contents — use read_file instead.",
   parameters: jsonSchema({
     type: "object",
     properties: {

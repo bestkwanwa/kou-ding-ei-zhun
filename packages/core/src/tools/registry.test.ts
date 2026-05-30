@@ -82,12 +82,14 @@ describe("ToolRegistry", () => {
     expect(second).toEqual(new Set(["a", "b"]));
   });
 
-  it("truncateResult respects tool maxResultLength", () => {
+  it("truncateResult uses Head/Tail 60/40 split", () => {
     const registry = new ToolRegistry();
     registry.register(makeTool({ name: "short", maxResultLength: 10 }));
     const longOutput = "a".repeat(100);
-    expect(registry.truncateResult("short", longOutput)).toBe(
-      "a".repeat(10) + `\n...[truncated, 100 chars total]`,
+    const result = registry.truncateResult("short", longOutput);
+    // Head: 6 chars, Tail: 4 chars, omitted: 90
+    expect(result).toBe(
+      "a".repeat(6) + "\n─── ...90 chars omitted... ───\n" + "a".repeat(4),
     );
   });
 
@@ -109,6 +111,6 @@ describe("ToolRegistry", () => {
     const longOutput = "x".repeat(20_000);
     const result = registry.truncateResult("unknown", longOutput);
     expect(result.length).toBeLessThan(longOutput.length);
-    expect(result).toContain("truncated");
+    expect(result).toContain("omitted");
   });
 });

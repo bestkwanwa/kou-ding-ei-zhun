@@ -53,6 +53,10 @@ When making changes:
 - Explain your reasoning briefly
 - Verify your changes work
 
+Tool usage rules:
+- Always use read_file to read file contents. NEVER use run_command with cat/head/tail to read files.
+- Use run_command only for: running tests, builds, git operations, installing packages, and other non-reading commands.
+
 Working directory: `;
 
 export class AgentError {
@@ -247,27 +251,18 @@ export function runAgent(
           log.log(`[tool-call] ${tc.toolName}`, tc.input);
         }
 
-        // Execute tools
+        // Execute tools — 不直接输出，执行完后统一按顺序打印
         const executeTool = (tc: ToolCallPart) =>
           Effect.gen(function* () {
             const tool = registry.get(tc.toolName);
             if (!tool) {
               log.log(`[tool-error] unknown tool: ${tc.toolName}`);
-              return {
-                type: "tool-result" as const,
-                toolCallId: tc.toolCallId,
-                toolName: tc.toolName,
-                output: {
-                  type: "text" as const,
-                  value: `Error: unknown tool "${tc.toolName}"`,
-                },
-              };
+              const output = `Error: unknown tool "${tc.toolName}"`;
+              return { tc, output, summary: "", isError: true };
             }
 
-            // 提取关键参数用于显示
             const args = tc.input as Record<string, unknown>;
             const summary = [args.path, args.command, args.pattern].find((v) => typeof v === "string") ?? "";
-            process.stderr.write(chalk.blue(`  ↳ ${tc.toolName}${summary ? `(${summary})` : ""}`));
 
             let output = yield* Effect.tryPromise({
               try: () =>
@@ -282,39 +277,37 @@ export function runAgent(
             output = registry.truncateResult(tc.toolName, output);
             log.log(`[tool-result] ${tc.toolName}:`, output);
 
-            const resultTag = output.startsWith("Error") ? chalk.red(" ✗") : chalk.green(` ✓ ${output.length}c`);
-            process.stderr.write(`${resultTag}\n`);
-
-            return {
-              type: "tool-result" as const,
-              toolCallId: tc.toolCallId,
-              toolName: tc.toolName,
-              output: { type: "text" as const, value: output },
-            };
+            return { tc, output, summary, isError: output.startsWith("Error") };
           });
 
         // 分组执行：可并行的工具无限制并发，不可并行的串行
         const parallelCalls = toolCalls.filter((tc) => parallelizableNames.has(tc.toolName));
         const serialCalls = toolCalls.filter((tc) => !parallelizableNames.has(tc.toolName));
 
-        // 记录执行策略到 log
-        if (parallelCalls.length > 0 || serialCalls.length > 0) {
-          const parts: string[] = [];
-          if (parallelCalls.length > 0) {
-            parts.push(`${parallelCalls.length} parallel: ${parallelCalls.map((tc) => tc.toolName).join(", ")}`);
-          }
-          if (serialCalls.length > 0) {
-            parts.push(`${serialCalls.length} serial: ${serialCalls.map((tc) => tc.toolName).join(", ")}`);
-          }
-          log.log(`[exec] ${parts.join(" | ")}`);
-        }
+        log.log(`[exec] ${parallelCalls.length} parallel, ${serialCalls.length} serial`);
 
         const [parallelResults, serialResults] = yield* Effect.all([
           Effect.all(parallelCalls.map(executeTool), { concurrency: "unbounded" }),
           Effect.all(serialCalls.map(executeTool), { concurrency: 1 }),
         ], { concurrency: 2 });
 
-        const toolResults: ToolResultPart[] = [...parallelResults, ...serialResults];
+        // 按原始 toolCalls 顺序输出结果
+        const resultMap = new Map<string, { tc: ToolCallPart; output: string; summary: string; isError: boolean }>();
+        for (const r of [...parallelResults, ...serialResults]) {
+          resultMap.set(r.tc.toolCallId, r);
+        }
+        for (const tc of toolCalls) {
+          const r = resultMap.get(tc.toolCallId)!;
+          const tag = r.isError ? chalk.red(" ✗") : chalk.green(` ✓ ${r.output.length}c`);
+          process.stderr.write(chalk.blue(`  ↳ ${tc.toolName}${r.summary ? `(${r.summary})` : ""}${tag}\n${chalk.gray(r.output)}\n`));
+        }
+
+        const toolResults: ToolResultPart[] = [...parallelResults, ...serialResults].map((r) => ({
+          type: "tool-result" as const,
+          toolCallId: r.tc.toolCallId,
+          toolName: r.tc.toolName,
+          output: { type: "text" as const, value: r.output },
+        }));
 
         // Build assistant content: text + tool calls
         const assistantContent: Array<
