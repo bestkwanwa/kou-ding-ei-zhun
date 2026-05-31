@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { jsonSchema } from "ai";
 import type { Tool } from "./types.js";
+import { formatFsError } from "./errors.js";
 
 export const writeFileTool: Tool = {
   name: "write_file",
@@ -22,10 +23,14 @@ export const writeFileTool: Tool = {
   }),
   async execute(args, ctx) {
     const filePath = path.resolve(ctx.cwd, args.path as string);
-    const dir = path.dirname(filePath);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(filePath, args.content as string, "utf-8");
-    return `File written: ${args.path}`;
+    try {
+      const dir = path.dirname(filePath);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(filePath, args.content as string, "utf-8");
+      return `File written: ${args.path}`;
+    } catch (err) {
+      return formatFsError(err, args.path as string);
+    }
   },
   maxResultLength: 1_000,
 };

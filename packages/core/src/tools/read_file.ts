@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { jsonSchema } from "ai";
 import type { Tool } from "./types.js";
+import { formatFsError } from "./errors.js";
 
 export const readFileTool: Tool = {
   name: "read_file",
@@ -18,8 +19,12 @@ export const readFileTool: Tool = {
   }),
   async execute(args, ctx) {
     const filePath = path.resolve(ctx.cwd, args.path as string);
-    const content = await fs.readFile(filePath, "utf-8");
-    return content;
+    try {
+      const content = await fs.readFile(filePath, "utf-8");
+      return content;
+    } catch (err) {
+      return formatFsError(err, args.path as string);
+    }
   },
   readOnly: true,
   parallelizable: true,

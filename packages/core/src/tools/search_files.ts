@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { jsonSchema } from "ai";
 import type { Tool } from "./types.js";
+import { formatFsError } from "./errors.js";
 
 export const searchFilesTool: Tool = {
   name: "search_files",
@@ -27,10 +28,16 @@ export const searchFilesTool: Tool = {
   }),
   async execute(args, ctx) {
     const dirPath = path.resolve(ctx.cwd, (args.directory as string) || ".");
-    const pattern = new RegExp(args.pattern as string, "i");
     const filePattern = args.file_pattern as string | undefined;
     const results: string[] = [];
     const maxResults = 50;
+
+    let pattern: RegExp;
+    try {
+      pattern = new RegExp(args.pattern as string, "i");
+    } catch {
+      return `Error: invalid regex pattern: "${args.pattern}"`;
+    }
 
     async function walk(dir: string): Promise<void> {
       if (results.length >= maxResults) return;
@@ -59,7 +66,11 @@ export const searchFilesTool: Tool = {
       }
     }
 
-    await walk(dirPath);
+    try {
+      await walk(dirPath);
+    } catch (err) {
+      return formatFsError(err, (args.directory as string) || ".");
+    }
     return results.join("\n") || "No matches found.";
   },
   readOnly: true,

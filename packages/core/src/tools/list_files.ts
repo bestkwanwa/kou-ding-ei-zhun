@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { jsonSchema } from "ai";
 import type { Tool } from "./types.js";
+import { formatFsError } from "./errors.js";
 
 export const listFilesTool: Tool = {
   name: "list_files",
@@ -18,9 +19,13 @@ export const listFilesTool: Tool = {
   }),
   async execute(args, ctx) {
     const dirPath = path.resolve(ctx.cwd, (args.path as string) || ".");
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
-    const lines = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
-    return lines.join("\n") || "(empty directory)";
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      const lines = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+      return lines.join("\n") || "(empty directory)";
+    } catch (err) {
+      return formatFsError(err, (args.path as string) || ".");
+    }
   },
   readOnly: true,
   parallelizable: true,

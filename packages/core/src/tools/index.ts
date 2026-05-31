@@ -5,6 +5,8 @@ import { editFileTool } from "./edit_file.js";
 import { listFilesTool } from "./list_files.js";
 import { runCommandTool } from "./run_command.js";
 import { searchFilesTool } from "./search_files.js";
+import { globTool } from "./glob.js";
+import { grepTool } from "./grep.js";
 
 /** 创建包含所有内置工具的 registry */
 export function createDefaultRegistry(): ToolRegistry {
@@ -16,6 +18,8 @@ export function createDefaultRegistry(): ToolRegistry {
     listFilesTool,
     runCommandTool,
     searchFilesTool,
+    globTool,
+    grepTool,
   ]);
   return registry;
 }
