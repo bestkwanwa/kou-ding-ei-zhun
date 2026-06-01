@@ -9,6 +9,7 @@ import { globTool } from "./glob.js";
 import { grepTool } from "./grep.js";
 import { fetchUrlTool } from "./fetch_url.js";
 import { previewTool } from "./preview.js";
+import { webSearchTool } from "./web_search.js";
 
 /** 创建包含所有内置工具的 registry */
 export function createDefaultRegistry(): ToolRegistry {
@@ -24,6 +25,7 @@ export function createDefaultRegistry(): ToolRegistry {
     grepTool,
     fetchUrlTool,
     previewTool,
+    webSearchTool,
   ]);
   return registry;
 }
