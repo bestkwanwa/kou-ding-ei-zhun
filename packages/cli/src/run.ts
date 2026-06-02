@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import { Effect } from "effect";
-import { runAgent, createDefaultRegistry, ToolRegistry, createModelFactory, AgentError, version } from "@kda/core";
+import { runAgent, createRegistryWithMcp, ToolRegistry, createModelFactory, AgentError, version } from "@kda/core";
 import type { AppConfig } from "@kda/core";
 
 export interface RunOptions {
@@ -23,7 +23,9 @@ export async function runAgentCli(
 ): Promise<void> {
   printBanner(config);
 
-  const registry = opts.toolsEnabled ? createDefaultRegistry() : new ToolRegistry();
+  const registry = opts.toolsEnabled
+    ? await createRegistryWithMcp(config.mcpServers)
+    : new ToolRegistry();
   const factory = createModelFactory(config);
   const model = factory(config.model);
 

@@ -1,5 +1,7 @@
 import "dotenv/config";
+import fs from "node:fs";
 import path from "node:path";
+import type { McpServerConfig } from "../mcp/client.js";
 
 export type ProviderName = "zhipu" | "openai" | "anthropic";
 
@@ -9,6 +11,7 @@ export interface AppConfig {
   apiKey: string;
   baseUrl?: string;
   cwd: string;
+  mcpServers?: McpServerConfig[];
 }
 
 export interface ConfigOverrides {
@@ -28,6 +31,34 @@ function resolveProvider(name: string): ProviderName {
   throw new Error(`Unknown provider "${name}". Supported: ${Object.keys(PROVIDER_DEFAULTS).join(", ")}`);
 }
 
+interface KdaConfigFile {
+  mcpServers?: Record<string, {
+    command: string;
+    args?: string[];
+    env?: Record<string, string>;
+  }>;
+}
+
+function loadMcpServers(cwd: string): McpServerConfig[] | undefined {
+  const configPath = path.join(cwd, "kda.json");
+  if (!fs.existsSync(configPath)) return undefined;
+
+  try {
+    const raw = fs.readFileSync(configPath, "utf-8");
+    const config = JSON.parse(raw) as KdaConfigFile;
+    if (!config.mcpServers) return undefined;
+
+    return Object.entries(config.mcpServers).map(([name, server]) => ({
+      name,
+      command: server.command,
+      args: server.args ?? [],
+      env: server.env,
+    }));
+  } catch {
+    return undefined;
+  }
+}
+
 export function loadConfig(overrides: ConfigOverrides = {}): AppConfig {
   const provider = resolveProvider(
     overrides.provider || process.env.DEFAULT_PROVIDER || "zhipu"
@@ -44,5 +75,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): AppConfig {
     );
   }
 
-  return { provider, model, apiKey, baseUrl, cwd };
+  const mcpServers = loadMcpServers(cwd);
+
+  return { provider, model, apiKey, baseUrl, cwd, mcpServers };
 }

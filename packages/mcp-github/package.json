@@ -1,0 +1,21 @@
+{
+  "name": "@kda/mcp-github",
+  "version": "0.1.0",
+  "description": "Local GitHub MCP server for kda",
+  "type": "module",
+  "bin": {
+    "mcp-github": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "license": "MIT"
+}
