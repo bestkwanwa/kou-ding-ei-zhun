@@ -17,6 +17,7 @@ import { withRetry } from "../llm/retry.js";
 import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
 import { TokenBudgetDetector, type TokenBudgetConfig } from "./token-budget.js";
 import { SessionStore, type SessionData } from "../session/index.js";
+import { createSystemPromptBuilder } from "../prompt/index.js";
 
 // Debug logger — writes to .kda-debug.log in cwd
 function createLogger(cwd: string) {
@@ -41,28 +42,6 @@ export interface AgentOptions {
   tokenBudget?: Partial<TokenBudgetConfig>;
   session?: SessionData;
 }
-
-export const SYSTEM_PROMPT = `You are an expert coding agent. You help users with software engineering tasks.
-
-You can:
-- Read, write, and edit files
-- Execute shell commands
-- Search through codebases
-
-When making changes:
-- Always read files before editing them
-- Make minimal, targeted changes
-- Explain your reasoning briefly
-- Verify your changes work
-
-Tool usage rules:
-- Always use read_file to read file contents. NEVER use run_command with cat/head/tail to read files.
-- Use run_command only for: running tests, builds, git operations, installing packages, and other non-reading commands.
-- Core tools are always available: read_file, write_file, edit_file, run_command, list_files, glob, grep, search_tools.
-- Additional tools exist but are not loaded. Use search_tools(query) to discover them by keyword.
-- After search_tools returns a tool, you can call it directly in the same conversation.
-
-Working directory: `;
 
 export class AgentError {
   readonly _tag = "AgentError";
@@ -123,16 +102,8 @@ export function runAgent(
   const detector = new LoopDetector(options.loopDetector);
   const tokenBudget = new TokenBudgetDetector(options.tokenBudget);
 
-  /** Build system prompt with current tool state */
-  function buildSystemPrompt(): string {
-    const lazySummaries = registry.getLazyToolSummaries();
-    let prompt = SYSTEM_PROMPT + options.cwd;
-    if (lazySummaries.length > 0) {
-      const lines = lazySummaries.map((t) => `- ${t.name} - ${t.summary}`);
-      prompt += `\n\nAdditional tools (use search_tools to load their full schema):\n${lines.join("\n")}`;
-    }
-    return prompt;
-  }
+  // Session context for prompt (set when session is restored)
+  let sessionCtx: { summary: string; messageCount: number } | undefined;
 
   // Run one round of tool-calling loop until the model stops calling tools
   const runToolLoop = (
@@ -148,7 +119,9 @@ export function runAgent(
         }
 
         // Log request: what we send to the model
-        const systemPrompt = buildSystemPrompt();
+        const promptBuilder = createSystemPromptBuilder({ cwd: options.cwd, registry, session: sessionCtx });
+        const systemPrompt = promptBuilder.build();
+        log.log(`[prompt-segments]`, promptBuilder.debug());
         const stats = registry.getToolStats();
         const estToken = (chars: number) => Math.round(chars / 4);
         log.log(`[tool-stats] total=${stats.total} | active=${stats.active} (~${estToken(stats.activeChars)} tokens) | inactive=${stats.inactive} (~${estToken(stats.inactiveChars)} tokens saved)`);
@@ -416,6 +389,7 @@ export function runAgent(
       sessionCreatedAt = options.session.createdAt;
       sessionSummary = options.session.summary;
       history = options.session.messages;
+      sessionCtx = { summary: sessionSummary, messageCount: history.length };
       log.log(`[session] resumed id=${sessionId}, messages=${history.length}, discovered=${options.session.discoveredTools.length}`);
       // Visible feedback: show what was restored
       if (history.length > 0) {

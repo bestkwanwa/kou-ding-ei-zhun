@@ -1,4 +1,4 @@
-export { runAgent, SYSTEM_PROMPT, AgentError } from "./agent/index.js";
+export { runAgent, AgentError } from "./agent/index.js";
 export type { AgentOptions } from "./agent/index.js";
 
 export { loadConfig } from "./config/index.js";
