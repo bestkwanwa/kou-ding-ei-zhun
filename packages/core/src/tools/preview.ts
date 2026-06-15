@@ -75,10 +75,10 @@ function serveDir(dir: string, port: number, ctx: ToolContext): Promise<string> 
 export const previewTool: Tool = {
   name: "preview",
   description:
-    "Start a local preview server for a React+TSX app on http://localhost:8080. " +
-    "index.html and App.tsx are managed automatically. " +
-    "Write your component as app/Main.tsx (default export). " +
-    "You can also create additional .tsx files in app/ and import them from Main.tsx.",
+    "Start a React+TSX preview server at http://localhost:8080. " +
+    "Call this BEFORE writing any code — it auto-creates the scaffold (index.html, App.tsx). " +
+    "You only need to write app/Main.tsx with your component as default export. " +
+    "Do NOT manually create index.html, App.tsx, or any build config.",
   parameters: jsonSchema({
     type: "object",
     properties: {},
@@ -93,4 +93,6 @@ export const previewTool: Tool = {
     return serveDir(dir, port, ctx);
   },
   maxResultLength: 1_000,
+  lazy: true,
+  hint: "preview react tsx component browser server localhost render ui page app",
 };

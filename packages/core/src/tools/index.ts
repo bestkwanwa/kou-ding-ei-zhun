@@ -4,12 +4,12 @@ import { writeFileTool } from "./write_file.js";
 import { editFileTool } from "./edit_file.js";
 import { listFilesTool } from "./list_files.js";
 import { runCommandTool } from "./run_command.js";
-import { searchFilesTool } from "./search_files.js";
 import { globTool } from "./glob.js";
 import { grepTool } from "./grep.js";
 import { fetchUrlTool } from "./fetch_url.js";
 import { previewTool } from "./preview.js";
 import { webSearchTool } from "./web_search.js";
+import { createSearchToolsTool } from "./search_tools.js";
 
 /** 创建包含所有内置工具的 registry */
 export function createDefaultRegistry(): ToolRegistry {
@@ -20,13 +20,13 @@ export function createDefaultRegistry(): ToolRegistry {
     editFileTool,
     listFilesTool,
     runCommandTool,
-    searchFilesTool,
     globTool,
     grepTool,
     fetchUrlTool,
     previewTool,
     webSearchTool,
   ]);
+  registry.register(createSearchToolsTool(registry));
   return registry;
 }
 

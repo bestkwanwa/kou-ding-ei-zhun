@@ -56,6 +56,9 @@ When making changes:
 Tool usage rules:
 - Always use read_file to read file contents. NEVER use run_command with cat/head/tail to read files.
 - Use run_command only for: running tests, builds, git operations, installing packages, and other non-reading commands.
+- Core tools are always available: read_file, write_file, edit_file, run_command, list_files, glob, grep, search_tools.
+- Additional tools exist but are not loaded. Use search_tools(query) to discover them by keyword.
+- After search_tools returns a tool, you can call it directly in the same conversation.
 
 Working directory: `;
 
@@ -110,6 +113,17 @@ export function runAgent(
   const detector = new LoopDetector(options.loopDetector);
   const tokenBudget = new TokenBudgetDetector(options.tokenBudget);
 
+  /** Build system prompt with current tool state */
+  function buildSystemPrompt(): string {
+    const lazySummaries = registry.getLazyToolSummaries();
+    let prompt = SYSTEM_PROMPT + options.cwd;
+    if (lazySummaries.length > 0) {
+      const lines = lazySummaries.map((t) => `- ${t.name} - ${t.summary}`);
+      prompt += `\n\nAdditional tools (use search_tools to load their full schema):\n${lines.join("\n")}`;
+    }
+    return prompt;
+  }
+
   // Run one round of tool-calling loop until the model stops calling tools
   const runToolLoop = (
     messages: ModelMessage[],
@@ -124,8 +138,12 @@ export function runAgent(
         }
 
         // Log request: what we send to the model
-        log.log(`[request] system prompt length=${(SYSTEM_PROMPT + options.cwd).length}`);
-        log.log(`[request] tools:`, Object.keys(toolDefs).map((name) => ({ name, tool: toolDefs[name] })));
+        const systemPrompt = buildSystemPrompt();
+        const stats = registry.getToolStats();
+        const estToken = (chars: number) => Math.round(chars / 4);
+        log.log(`[tool-stats] total=${stats.total} | active=${stats.active} (~${estToken(stats.activeChars)} tokens) | inactive=${stats.inactive} (~${estToken(stats.inactiveChars)} tokens saved)`);
+        log.log(`[request] system prompt:\n${systemPrompt}`);
+        log.log(`[request] tools:`, JSON.stringify(toolDefs, null, 2));
         log.log(`[request] messages:`, state.messages);
 
         // Process fullStream events
@@ -134,7 +152,7 @@ export function runAgent(
             try: async () => {
               const result = streamText({
                 model,
-                system: SYSTEM_PROMPT + options.cwd,
+                system: systemPrompt,
                 messages: state.messages,
                 tools: toolDefs,
                 maxRetries: 0, // retry 完全由 Effect 管理，不让 AI SDK 自行重试
@@ -302,6 +320,9 @@ export function runAgent(
           process.stderr.write(chalk.blue(`  ↳ ${tc.toolName}${r.summary ? `(${r.summary})` : ""}${tag}\n${chalk.gray(r.output)}\n`));
         }
 
+        // Sync discovered lazy tools into toolDefs for next LLM request
+        registry.syncDiscovered(toolDefs);
+        log.log(`[lazy-load] toolDefs now:`, Object.keys(toolDefs));
         const toolResults: ToolResultPart[] = [...parallelResults, ...serialResults].map((r) => ({
           type: "tool-result" as const,
           toolCallId: r.tc.toolCallId,

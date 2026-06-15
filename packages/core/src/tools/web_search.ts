@@ -136,4 +136,6 @@ export const webSearchTool: Tool = {
   readOnly: true,
   parallelizable: true,
   maxResultLength: 50_000,
+  lazy: true,
+  hint: "search web internet query tavily serper google online",
 };

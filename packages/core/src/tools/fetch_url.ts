@@ -80,4 +80,6 @@ export const fetchUrlTool: Tool = {
   readOnly: true,
   parallelizable: true,
   maxResultLength: 50_000,
+  lazy: true,
+  hint: "fetch web page url markdown html request http",
 };

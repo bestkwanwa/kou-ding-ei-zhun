@@ -19,4 +19,8 @@ export interface Tool {
   parallelizable?: boolean;
   /** 工具结果最大长度（字符数），超出截断，默认 10000 */
   maxResultLength?: number;
+  /** 是否延迟加载（不立即传给 LLM，需 search_tools 搜索后可见） */
+  lazy?: boolean;
+  /** 搜索提示词，用于 search_tools 匹配。lazy=true 时必填 */
+  hint?: string;
 }
