@@ -16,6 +16,7 @@ import type { ToolRegistry } from "../tools/registry.js";
 import { withRetry } from "../llm/retry.js";
 import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
 import { TokenBudgetDetector, type TokenBudgetConfig } from "./token-budget.js";
+import { SessionStore, type SessionData } from "../session/index.js";
 
 // Debug logger — writes to .kda-debug.log in cwd
 function createLogger(cwd: string) {
@@ -38,6 +39,7 @@ export interface AgentOptions {
   maxIterations?: number;
   loopDetector?: Partial<LoopDetectorConfig>;
   tokenBudget?: Partial<TokenBudgetConfig>;
+  session?: SessionData;
 }
 
 export const SYSTEM_PROMPT = `You are an expert coding agent. You help users with software engineering tasks.
@@ -106,6 +108,14 @@ export function runAgent(
   options: AgentOptions,
 ): Effect.Effect<void, AgentError> {
   const toolCtx: ToolContext = { cwd: options.cwd };
+
+  // Restore discovered tools from session before building toolDefs
+  if (options.session) {
+    for (const name of options.session.discoveredTools) {
+      registry.discover(name);
+    }
+  }
+
   const toolDefs: ToolSet = registry.toAiSdkDefinitions();
   const parallelizableNames = registry.getParallelizableToolNames();
   const maxIterations = options.maxIterations ?? 50;
@@ -387,18 +397,66 @@ export function runAgent(
     });
   };
 
+  // Session store for persistence
+  const sessionStore = new SessionStore(options.cwd);
+
   // Main conversation loop: tool loop → read input → repeat
   return Effect.gen(function* () {
     log.clear();
     const userInput = createUserInput();
-    let history: ModelMessage[] = [];
+
+    // Initialize session state
+    let sessionId: string;
+    let sessionCreatedAt: string;
+    let sessionSummary: string;
+    let history: ModelMessage[];
+
+    if (options.session) {
+      sessionId = options.session.id;
+      sessionCreatedAt = options.session.createdAt;
+      sessionSummary = options.session.summary;
+      history = options.session.messages;
+      log.log(`[session] resumed id=${sessionId}, messages=${history.length}, discovered=${options.session.discoveredTools.length}`);
+      // Visible feedback: show what was restored
+      if (history.length > 0) {
+        process.stderr.write(chalk.gray(`  ↳ Restored ${history.length} messages from session ${sessionId}\n`));
+        process.stderr.write(chalk.gray(`  ↳ Topic: ${sessionSummary}\n`));
+        // Print a compact preview of the conversation
+        for (const msg of history) {
+          if (msg.role === "user" && typeof msg.content === "string") {
+            process.stderr.write(chalk.gray(`    [user] ${msg.content.slice(0, 100)}\n`));
+          }
+        }
+      }
+    } else {
+      const newSession = sessionStore.create(initialPrompt);
+      sessionId = newSession.id;
+      sessionCreatedAt = newSession.createdAt;
+      sessionSummary = newSession.summary;
+      history = [];
+      log.log(`[session] new id=${sessionId}`);
+    }
+
+    const saveSession = () => {
+      sessionStore.save({
+        id: sessionId,
+        createdAt: sessionCreatedAt,
+        updatedAt: new Date().toISOString(),
+        summary: sessionSummary,
+        messages: history,
+        discoveredTools: registry.getDiscoveredTools(),
+      });
+    };
 
     // First message from initial prompt (skip if empty → go straight to interactive)
     if (initialPrompt.trim()) {
-      const firstUserMsg: ModelMessage = { role: "user", content: initialPrompt };
       log.log(`[conv] first prompt:`, initialPrompt);
-      history = yield* runToolLoop([firstUserMsg]);
+      history = yield* runToolLoop([
+        ...history,
+        { role: "user" as const, content: initialPrompt },
+      ]);
       log.log(`[conv] first turn done, history=${history.length} messages`);
+      saveSession();
     } else {
       log.log(`[conv] no initial prompt, entering interactive mode`);
     }
@@ -422,6 +480,7 @@ export function runAgent(
         { role: "user", content: trimmed },
       ]);
       log.log(`[conv] turn done, history=${history.length} messages`);
+      saveSession();
     }
   });
 }

@@ -122,6 +122,11 @@ export class ToolRegistry {
     };
   }
 
+  /** 获取已发现的 lazy 工具名列表 */
+  getDiscoveredTools(): string[] {
+    return [...this.discovered];
+  }
+
   /** 获取所有可并行工具名（缓存） */
   getParallelizableToolNames(): Set<string> {
     if (!this._parallelizableNames) {

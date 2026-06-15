@@ -16,6 +16,9 @@ program
   .option("--cwd <dir>", "Working directory", process.cwd())
   .option("--no-tools", "Disable tool use (chat only mode)")
   .option("-v, --verbose", "Show verbose output including tool calls")
+  .option("-c, --continue", "Resume the most recent session")
+  .option("-r, --resume <id>", "Resume a specific session by ID")
+  .option("-l, --list", "List sessions and pick one interactively")
   .action(async (prompt, opts) => {
     const config = loadConfig({
       provider: opts.provider,
@@ -25,6 +28,9 @@ program
     await runAgentCli(prompt ?? "", config, {
       toolsEnabled: opts.tools,
       verbose: opts.verbose,
+      continueSession: opts.continue,
+      resumeId: opts.resume,
+      listSessions: opts.list,
     });
   });
 
