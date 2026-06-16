@@ -4,7 +4,7 @@ import type { LanguageModelUsage } from "ai";
 // Types
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_MAX_TOTAL_TOKENS = 100_000;
+export const DEFAULT_MAX_TOTAL_TOKENS = 200_000;
 
 export interface TokenBudgetConfig {
   /** 最大 total token 上限（整个会话累计），默认 100k */

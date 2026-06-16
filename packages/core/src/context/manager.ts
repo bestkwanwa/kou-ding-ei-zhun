@@ -12,7 +12,7 @@ export function cleanupToolResults(
   messages: ModelMessage[],
   registry: ToolRegistry,
   keepRounds: number = DEFAULT_KEEP_TOOL_RESULT_ROUNDS,
-): { messages: ModelMessage[]; cleanedCount: number } {
+): { messages: ModelMessage[]; cleanedCount: number; savedChars: number } {
   // 1. 找到所有 tool 消息的索引
   const toolMsgIndices: number[] = [];
   messages.forEach((msg, i) => {
@@ -21,7 +21,7 @@ export function cleanupToolResults(
 
   // 2. 轮数不够，无需清理
   if (toolMsgIndices.length <= keepRounds) {
-    return { messages, cleanedCount: 0 };
+    return { messages, cleanedCount: 0, savedChars: 0 };
   }
 
   // 3. cutoff：此索引及之后的 tool 消息保留原样
@@ -41,6 +41,7 @@ export function cleanupToolResults(
 
   // 5. 清理旧 tool 消息中的 cleanable 结果
   let cleanedCount = 0;
+  let savedChars = 0;
   const result = messages.map((msg, i) => {
     if (i >= cutoffIdx || msg.role !== "tool") return msg;
 
@@ -59,12 +60,14 @@ export function cleanupToolResults(
         .find((v) => typeof v === "string") ?? "";
       const argStr = arg ? `("${arg}")` : "";
 
+      const placeholder = `[Context cleared: ${tr.toolName}${argStr} returned ${value.length} chars]`;
+      savedChars += value.length - placeholder.length;
       cleanedCount++;
       return {
         ...tr,
         output: {
           type: "text" as const,
-          value: `[Context cleared: ${tr.toolName}${argStr} returned ${value.length} chars]`,
+          value: placeholder,
         },
       };
     });
@@ -72,5 +75,5 @@ export function cleanupToolResults(
     return { ...msg, content };
   });
 
-  return { messages: result, cleanedCount };
+  return { messages: result, cleanedCount, savedChars };
 }

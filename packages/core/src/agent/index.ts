@@ -1,7 +1,7 @@
 import { Effect, Console } from "effect";
 import chalk from "chalk";
 import * as readline from "node:readline";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   streamText,
@@ -20,9 +20,11 @@ import { SessionStore, type SessionData } from "../session/index.js";
 import { createSystemPromptBuilder } from "../prompt/index.js";
 import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS } from "../context/index.js";
 
-// Debug logger — writes to .kda-debug.log in cwd
+// Debug logger — writes to .kda/logs/debug.log in cwd
 function createLogger(cwd: string) {
-  const logPath = resolve(cwd, ".kda-debug.log");
+  const logDir = resolve(cwd, ".kda", "logs");
+  mkdirSync(logDir, { recursive: true });
+  const logPath = resolve(logDir, "debug.log");
   const ts = () => new Date().toISOString();
   return {
     log(...args: unknown[]) {
@@ -121,17 +123,26 @@ export function runAgent(
           return { ...state, done: true };
         }
 
+        // Pre-call budget check: stop before calling LLM if already exceeded
+        const preCheck = tokenBudget.check();
+        if (preCheck.exceeded) {
+          log.log(`[token-budget] already exceeded, stopping before LLM call`);
+          console.log(chalk.yellow(`\n[Token budget exceeded: ${preCheck.message}]`));
+          return { messages: state.messages, iteration: state.iteration, done: true };
+        }
+
         // Log request: what we send to the model
         const promptBuilder = createSystemPromptBuilder({ cwd: options.cwd, registry, session: sessionCtx });
         const systemPrompt = promptBuilder.build();
         log.log(`[prompt-segments]`, promptBuilder.debug());
 
         // Context management: clean old tool results
-        const { messages: cleanedMessages, cleanedCount } = cleanupToolResults(
+        const { messages: cleanedMessages, cleanedCount, savedChars } = cleanupToolResults(
           state.messages, registry, keepToolResultRounds,
         );
         if (cleanedCount > 0) {
-          log.log(`[context-manager] cleaned ${cleanedCount} old tool results (kept ${keepToolResultRounds} recent rounds)`);
+          const estToken = (chars: number) => Math.round(chars / 4);
+          log.log(`[context-manager] cleaned ${cleanedCount} results, saved ~${estToken(savedChars)} tokens (${savedChars} chars, kept ${keepToolResultRounds} recent rounds)`);
         }
 
         const stats = registry.getToolStats();
@@ -217,6 +228,7 @@ export function runAgent(
                     const outTok = step.outputTokens ?? 0;
                     const budget = tokenBudget.check().budget;
                     process.stderr.write(chalk.gray(`\n[Tokens: ${u}/${budget} (+${inTok}↑ ${outTok}↓)]\n`));
+                    log.log(`[token-usage] accumulated=${u} budget=${budget} input=${inTok} output=${outTok}`);
                   }
                   if (options.verbose) {
                     console.log(chalk.gray(`[finish-step] reason=${event.finishReason}`));

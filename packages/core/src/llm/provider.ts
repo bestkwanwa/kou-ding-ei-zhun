@@ -1,7 +1,7 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { zhipu, createZhipu } from "zhipu-ai-provider";
 import type { AppConfig } from "../config/index.js";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 export type ModelFactory = (modelId: string) => LanguageModelV3;
@@ -10,7 +10,9 @@ let requestLogInitialized = false;
 
 /** 创建带请求日志的 fetch wrapper */
 function createLoggingFetch(cwd: string): typeof globalThis.fetch {
-  const logPath = resolve(cwd, ".kda-request.log");
+  const logDir = resolve(cwd, ".kda", "logs");
+  mkdirSync(logDir, { recursive: true });
+  const logPath = resolve(logDir, "request.log");
   const ts = () => new Date().toISOString();
 
   // Clear log on first call (new session)

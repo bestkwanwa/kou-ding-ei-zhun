@@ -10,7 +10,8 @@
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "clean": "pnpm -r run clean",
-    "sync-version": "node scripts/sync-version.mjs"
+    "sync-version": "node scripts/sync-version.mjs",
+    "log-viewer": "pnpm --filter @kda/log-viewer start"
   },
   "keywords": [
     "coding-agent",

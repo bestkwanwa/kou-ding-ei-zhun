@@ -79,10 +79,10 @@ describe("TokenBudgetDetector", () => {
     expect(detector.getLastStep()).toBeNull();
   });
 
-  it("defaults to 100k budget", () => {
+  it("defaults to 200k budget", () => {
     const detector = new TokenBudgetDetector();
     expect(detector.check().budget).toBe(DEFAULT_MAX_TOTAL_TOKENS);
-    expect(DEFAULT_MAX_TOTAL_TOKENS).toBe(100_000);
+    expect(DEFAULT_MAX_TOTAL_TOKENS).toBe(200_000);
   });
 
   it("getLastStep() returns last recorded usage", () => {
