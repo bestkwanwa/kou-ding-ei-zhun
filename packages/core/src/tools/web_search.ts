@@ -138,4 +138,5 @@ export const webSearchTool: Tool = {
   maxResultLength: 50_000,
   lazy: true,
   hint: "search web internet query tavily serper google online",
+  cleanable: true,
 };

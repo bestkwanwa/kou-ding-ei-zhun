@@ -29,4 +29,5 @@ export const readFileTool: Tool = {
   readOnly: true,
   parallelizable: true,
   maxResultLength: 50_000,
+  cleanable: true,
 };

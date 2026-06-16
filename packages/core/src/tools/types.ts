@@ -23,4 +23,6 @@ export interface Tool {
   lazy?: boolean;
   /** 搜索提示词，用于 search_tools 匹配。lazy=true 时必填 */
   hint?: string;
+  /** 工具结果是否可被上下文管理清理（旧轮次时替换为占位符） */
+  cleanable?: boolean;
 }

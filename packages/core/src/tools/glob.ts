@@ -75,6 +75,7 @@ export const globTool: Tool = {
   readOnly: true,
   parallelizable: true,
   maxResultLength: 10_000,
+  cleanable: true,
 };
 
 /**

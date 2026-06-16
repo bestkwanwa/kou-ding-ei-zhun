@@ -82,4 +82,5 @@ export const fetchUrlTool: Tool = {
   maxResultLength: 50_000,
   lazy: true,
   hint: "fetch web page url markdown html request http",
+  cleanable: true,
 };

@@ -30,4 +30,5 @@ export const listFilesTool: Tool = {
   readOnly: true,
   parallelizable: true,
   maxResultLength: 10_000,
+  cleanable: true,
 };

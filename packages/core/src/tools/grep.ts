@@ -78,6 +78,7 @@ export const grepTool: Tool = {
   readOnly: true,
   parallelizable: true,
   maxResultLength: 10_000,
+  cleanable: true,
 };
 
 /** Minimal shell escaping for safety */

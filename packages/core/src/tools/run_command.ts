@@ -45,4 +45,5 @@ export const runCommandTool: Tool = {
     }
   },
   maxResultLength: 50_000,
+  cleanable: true,
 };

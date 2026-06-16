@@ -18,6 +18,7 @@ import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
 import { TokenBudgetDetector, type TokenBudgetConfig } from "./token-budget.js";
 import { SessionStore, type SessionData } from "../session/index.js";
 import { createSystemPromptBuilder } from "../prompt/index.js";
+import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS } from "../context/index.js";
 
 // Debug logger — writes to .kda-debug.log in cwd
 function createLogger(cwd: string) {
@@ -41,6 +42,7 @@ export interface AgentOptions {
   loopDetector?: Partial<LoopDetectorConfig>;
   tokenBudget?: Partial<TokenBudgetConfig>;
   session?: SessionData;
+  keepToolResultRounds?: number;
 }
 
 export class AgentError {
@@ -101,6 +103,7 @@ export function runAgent(
   const log = createLogger(options.cwd);
   const detector = new LoopDetector(options.loopDetector);
   const tokenBudget = new TokenBudgetDetector(options.tokenBudget);
+  const keepToolResultRounds = options.keepToolResultRounds ?? DEFAULT_KEEP_TOOL_RESULT_ROUNDS;
 
   // Session context for prompt (set when session is restored)
   let sessionCtx: { summary: string; messageCount: number } | undefined;
@@ -122,12 +125,21 @@ export function runAgent(
         const promptBuilder = createSystemPromptBuilder({ cwd: options.cwd, registry, session: sessionCtx });
         const systemPrompt = promptBuilder.build();
         log.log(`[prompt-segments]`, promptBuilder.debug());
+
+        // Context management: clean old tool results
+        const { messages: cleanedMessages, cleanedCount } = cleanupToolResults(
+          state.messages, registry, keepToolResultRounds,
+        );
+        if (cleanedCount > 0) {
+          log.log(`[context-manager] cleaned ${cleanedCount} old tool results (kept ${keepToolResultRounds} recent rounds)`);
+        }
+
         const stats = registry.getToolStats();
         const estToken = (chars: number) => Math.round(chars / 4);
         log.log(`[tool-stats] total=${stats.total} | active=${stats.active} (~${estToken(stats.activeChars)} tokens) | inactive=${stats.inactive} (~${estToken(stats.inactiveChars)} tokens saved)`);
         log.log(`[request] system prompt:\n${systemPrompt}`);
         log.log(`[request] tools:`, JSON.stringify(toolDefs, null, 2));
-        log.log(`[request] messages:`, state.messages);
+        log.log(`[request] messages:`, cleanedMessages);
 
         // Process fullStream events
         const { text, toolCalls } = yield* withRetry(
@@ -136,7 +148,7 @@ export function runAgent(
               const result = streamText({
                 model,
                 system: systemPrompt,
-                messages: state.messages,
+                messages: cleanedMessages,
                 tools: toolDefs,
                 maxRetries: 0, // retry 完全由 Effect 管理，不让 AI SDK 自行重试
               });
