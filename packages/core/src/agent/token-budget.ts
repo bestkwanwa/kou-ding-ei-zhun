@@ -55,6 +55,14 @@ export class TokenBudgetDetector {
     return this.accumulated;
   }
 
+  /**
+   * 是否需要压缩：基于累计 token（与 budget stop 一致）。
+   * 压缩成功后 agent 会 reset()，不会重复触发。
+   */
+  shouldCompress(threshold = 0.8): boolean {
+    return this.accumulated >= this.maxTotalTokens * threshold;
+  }
+
   /** 上一步的 usage（用于 TUI 展示） */
   getLastStep(): LanguageModelUsage | null {
     return this.lastStep;

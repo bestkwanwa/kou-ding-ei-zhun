@@ -75,8 +75,8 @@ function serveDir(dir: string, port: number, ctx: ToolContext): Promise<string> 
 export const previewTool: Tool = {
   name: "preview",
   description:
-    "Start a React+TSX preview server at http://localhost:8080. " +
-    "Call this BEFORE writing any code — it auto-creates the scaffold (index.html, App.tsx). " +
+    "Scaffold and serve a React+TSX app at http://localhost:8080 — call this to instantly bootstrap a working React project with hot reload. " +
+    "It auto-creates index.html, App.tsx, and build config, then starts a preview server. " +
     "You only need to write app/Main.tsx with your component as default export. " +
     "Do NOT manually create index.html, App.tsx, or any build config.",
   parameters: jsonSchema({

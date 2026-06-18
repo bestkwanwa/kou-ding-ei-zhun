@@ -18,7 +18,7 @@ import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
 import { TokenBudgetDetector, type TokenBudgetConfig } from "./token-budget.js";
 import { SessionStore, type SessionData } from "../session/index.js";
 import { createSystemPromptBuilder } from "../prompt/index.js";
-import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS } from "../context/index.js";
+import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS, compressMessages } from "../context/index.js";
 
 // Debug logger — writes to .kda/logs/debug.log in cwd
 function createLogger(cwd: string) {
@@ -114,6 +114,7 @@ export function runAgent(
   const runToolLoop = (
     messages: ModelMessage[],
   ): Effect.Effect<ModelMessage[], AgentError> => {
+    let compressed = false;
     const loop = (state: LoopState): Effect.Effect<LoopState, AgentError> =>
       Effect.gen(function* () {
         log.log(`[loop] iteration=${state.iteration}, messages=${state.messages.length}`);
@@ -129,6 +130,27 @@ export function runAgent(
           log.log(`[token-budget] already exceeded, stopping before LLM call`);
           console.log(chalk.yellow(`\n[Token budget exceeded: ${preCheck.message}]`));
           return { messages: state.messages, iteration: state.iteration, done: true };
+        }
+
+        // Compression: when accumulated tokens reach 80% of budget, summarize all messages
+        if (!compressed && tokenBudget.shouldCompress()) {
+          log.log(`[summarizer] threshold reached (accumulated=${tokenBudget.getAccumulated()}), compressing...`);
+          const compressResult = yield* Effect.tryPromise({
+            try: () => compressMessages(state.messages, model),
+            catch: (e) => new AgentError("Compression failed", e),
+          }).pipe(
+            Effect.catchTag("AgentError", (e) => {
+              log.log(`[summarizer] failed: ${e.message}`);
+              return Effect.succeed(null);
+            }),
+          );
+          if (compressResult) {
+            log.log(`[summarizer] compressed ${compressResult.compressedCount} messages into ${compressResult.summary.length}c summary`);
+            process.stderr.write(chalk.yellow(`\n[Context compressed: ${compressResult.compressedCount} messages → summary]\n`));
+            state = { ...state, messages: compressResult.messages };
+            compressed = true;
+            tokenBudget.reset();
+          }
         }
 
         // Log request: what we send to the model
