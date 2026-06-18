@@ -115,6 +115,8 @@ export function runAgent(
     messages: ModelMessage[],
   ): Effect.Effect<ModelMessage[], AgentError> => {
     let compressed = false;
+    let compressAttempts = 0;
+    const MAX_COMPRESS_ATTEMPTS = 3;
     const loop = (state: LoopState): Effect.Effect<LoopState, AgentError> =>
       Effect.gen(function* () {
         log.log(`[loop] iteration=${state.iteration}, messages=${state.messages.length}`);
@@ -133,7 +135,8 @@ export function runAgent(
         }
 
         // Compression: when accumulated tokens reach 80% of budget, summarize all messages
-        if (!compressed && tokenBudget.shouldCompress()) {
+        if (!compressed && compressAttempts < MAX_COMPRESS_ATTEMPTS && tokenBudget.shouldCompress()) {
+          compressAttempts++;
           log.log(`[summarizer] threshold reached (accumulated=${tokenBudget.getAccumulated()}), compressing...`);
           const compressResult = yield* Effect.tryPromise({
             try: () => compressMessages(state.messages, model),
