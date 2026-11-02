@@ -19,6 +19,7 @@ import { TokenBudgetDetector, type TokenBudgetConfig } from "./token-budget.js";
 import { SessionStore, type SessionData } from "../session/index.js";
 import { createSystemPromptBuilder } from "../prompt/index.js";
 import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS, compressMessages } from "../context/index.js";
+import { createDefaultCommandDispatcher } from "../commands/index.js";
 
 // Debug logger — writes to .kda/logs/debug.log in cwd
 function createLogger(cwd: string) {
@@ -422,6 +423,9 @@ export function runAgent(
   // Session store for persistence
   const sessionStore = new SessionStore(options.cwd);
 
+  // Slash command dispatcher ("/" 前缀输入在此拦截，不进 LLM)
+  const dispatcher = createDefaultCommandDispatcher({ cwd: options.cwd });
+
   // Main conversation loop: tool loop → read input → repeat
   return Effect.gen(function* () {
     log.clear();
@@ -495,6 +499,9 @@ export function runAgent(
         userInput.close();
         return;
       }
+
+      // 斜杠命令：处理则跳过本轮 LLM 调用（不写入 history、不触发 saveSession）
+      if (dispatcher.handle(trimmed)) continue;
 
       log.log(`[conv] user input:`, trimmed);
       log.log(`[conv] passing history=${history.length} messages`);

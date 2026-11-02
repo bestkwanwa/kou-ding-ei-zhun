@@ -9,10 +9,12 @@ import { grepTool } from "./grep.js";
 import { fetchUrlTool } from "./fetch_url.js";
 import { previewTool } from "./preview.js";
 import { webSearchTool } from "./web_search.js";
+import { createMemoryTool } from "./memory.js";
 import { createSearchToolsTool } from "./search_tools.js";
+import { MemoryStore } from "../memory/index.js";
 
 /** 创建包含所有内置工具的 registry */
-export function createDefaultRegistry(): ToolRegistry {
+export function createDefaultRegistry(cwd: string): ToolRegistry {
   const registry = new ToolRegistry();
   registry.registerAll([
     readFileTool,
@@ -26,7 +28,11 @@ export function createDefaultRegistry(): ToolRegistry {
     previewTool,
     webSearchTool,
   ]);
+  // 系统级工具：依赖外显构造 + init，经参数注入工厂
+  const memoryStore = new MemoryStore(cwd);
+  memoryStore.init();
   registry.register(createSearchToolsTool(registry));
+  registry.register(createMemoryTool(memoryStore));
   return registry;
 }
 

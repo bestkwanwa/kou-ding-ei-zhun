@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import { Effect } from "effect";
 import * as readline from "node:readline";
-import { runAgent, createDefaultRegistry, ToolRegistry, createModelFactory, AgentError, SessionStore, version } from "@kda/core";
+import { runAgent, createDefaultRegistry, ToolRegistry, createModelFactory, AgentError, SessionStore, version, DEFAULT_COMMANDS } from "@kda/core";
 import type { AppConfig, SessionData } from "@kda/core";
 
 export interface RunOptions {
@@ -17,6 +17,10 @@ function printBanner(config: AppConfig) {
   console.log(chalk.bold.cyan(`  kda`) + chalk.gray(` v${version}`));
   console.log(chalk.bold.cyan(`  model `) + chalk.gray(` ${config.provider}/${config.model}`));
   console.log(chalk.bold.cyan(`  cwd `) + chalk.gray(` ${config.cwd}`));
+  if (DEFAULT_COMMANDS.length > 0) {
+    const guide = DEFAULT_COMMANDS.map((c) => `${c.usage}  ${c.description}`).join("\n         ");
+    console.log(chalk.bold.cyan(`  cmds `) + chalk.gray(` ${guide}`));
+  }
   console.log("");
 }
 
@@ -94,7 +98,7 @@ export async function runAgentCli(
     console.log("");
   }
 
-  const registry = opts.toolsEnabled ? createDefaultRegistry() : new ToolRegistry();
+  const registry = opts.toolsEnabled ? createDefaultRegistry(config.cwd) : new ToolRegistry();
   const factory = createModelFactory(config);
   const model = factory(config.model);
 
