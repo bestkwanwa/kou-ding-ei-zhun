@@ -16,8 +16,8 @@ function makeCtx() {
 
 function seedMemories(ctx: { cwd: string }) {
   const store = new MemoryStore(ctx.cwd);
-  store.upsert({ name: "build-system", type: "project", description: "pnpm workspaces", body: "Run `pnpm -r build`." });
-  store.upsert({ name: "user-pref", type: "preference", description: "replies in Chinese", body: "用户希望用中文回复。" });
+  store.upsert({ type: "dynamic", slug: "toolchain", description: "pnpm workspaces", body: "Run `pnpm -r build`." });
+  store.upsert({ type: "user", slug: "pref", description: "replies in Chinese", body: "用户希望用中文回复。" });
   return store;
 }
 
@@ -33,8 +33,8 @@ describe("/memory command", () => {
     seedMemories(ctx);
     const out = memoryCommand.execute("", ctx);
     expect(out).toContain("Project memory (2)");
-    expect(out).toContain("build-system");
-    expect(out).toContain("(project)");
+    expect(out).toContain("dynamic-toolchain");
+    expect(out).toContain("(dynamic)");
     expect(out).toContain("user-pref");
   });
 
@@ -46,9 +46,9 @@ describe("/memory command", () => {
   it("show prints a single memory in full", () => {
     const ctx = makeCtx();
     seedMemories(ctx);
-    const out = memoryCommand.execute("show build-system", ctx);
-    expect(out).toContain("name: build-system");
-    expect(out).toContain("type: project");
+    const out = memoryCommand.execute("show dynamic-toolchain", ctx);
+    expect(out).toContain("name: dynamic-toolchain");
+    expect(out).toContain("type: dynamic");
     expect(out).toContain("Run `pnpm -r build`.");
   });
 
@@ -66,6 +66,7 @@ describe("/memory command", () => {
     expect(out).toContain("Deleted memory: user-pref");
     expect(store.loadAll()).toHaveLength(1);
   });
+
 
   it("clear wipes everything", () => {
     const ctx = makeCtx();

@@ -6,8 +6,8 @@ const USAGE = `Usage: /memory <action>
 
 Actions:
   list              列出所有记忆（默认动作）
-  show <name>       查看单条记忆全文
-  delete <name>     删除一条记忆
+  show <name>       查看单条记忆全文（name 为索引中的完整名字，如 feedback-no-npm）
+  delete <name>     删除一条记忆（完整名字）
   clear             清空全部记忆
   path              显示存储目录
 
@@ -31,7 +31,7 @@ export const memoryCommand: Command = {
         }
         const lines = all.map(
           (m) =>
-            `  ${chalk.yellow(m.name)}  ${chalk.gray(`(${m.type})`)}  ${m.description}` +
+            `  ${chalk.yellow(m.id)}  ${chalk.gray(`(${m.type})`)}  ${m.description}` +
             `\n      ${chalk.gray(m.updated)}`,
         );
         return `Project memory (${all.length}):\n${lines.join("\n")}`;
@@ -40,12 +40,12 @@ export const memoryCommand: Command = {
       case "show": {
         if (!nameArg) return `Usage: /memory show <name>`;
         const all = store.loadAll();
-        const m = all.find((x) => x.name === nameArg);
+        const m = all.find((x) => x.id === nameArg);
         if (!m) {
           return `Memory "${nameArg}" not found.` +
-            (all.length > 0 ? ` Existing: ${all.map((x) => x.name).join(", ")}` : "");
+            (all.length > 0 ? ` Existing: ${all.map((x) => x.id).join(", ")}` : "");
         }
-        return `---\nname: ${m.name}\ntype: ${m.type}\ndescription: ${m.description}\nupdated: ${m.updated}\n---\n\n${m.body}`;
+        return `---\nname: ${m.id}\ntype: ${m.type}\ndescription: ${m.description}\nupdated: ${m.updated}\n---\n\n${m.body}`;
       }
 
       case "delete": {
@@ -53,7 +53,7 @@ export const memoryCommand: Command = {
         if (!store.delete(nameArg)) {
           const all = store.loadAll();
           return `Memory "${nameArg}" not found.` +
-            (all.length > 0 ? ` Existing: ${all.map((x) => x.name).join(", ")}` : "");
+            (all.length > 0 ? ` Existing: ${all.map((x) => x.id).join(", ")}` : "");
         }
         return `Deleted memory: ${nameArg}`;
       }

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { resolve } from "node:path";
 import { parseFrontmatter, serializeFrontmatter } from "./frontmatter.js";
 import type { Frontmatter } from "./frontmatter.js";
-import type { MemoryFile, MemoryInput } from "./types.js";
+import type { MemoryFile, MemoryInput, MemoryType } from "./types.js";
 import {
   MAX_DESCRIPTION_CHARS,
   MAX_FILE_CHARS,
@@ -10,15 +10,32 @@ import {
   MAX_INDEX_CHARS,
   MAX_INJECTION_CHARS,
   MAX_MEMORY_FILES,
+  MAX_NAME_CHARS,
   MEMORY_NAME_RE,
   MEMORY_TYPES,
 } from "./types.js";
 
 const INDEX_FILENAME = "MEMORY.md";
 
+const INJECTION_HEAD =
+  "## Project Memory\n\n" +
+  "Long-lived knowledge about this project, carried across sessions. " +
+  "Only the index is loaded — use the memory tool's read action to read a specific memory's full content.";
+const INJECTION_TAIL =
+  "Memories are clues, not facts — verify their accuracy before relying on them.";
+
+/** 剥掉 slug 已带的合法类型前缀（幂等），模型传 slug 或完整 id 都归一到同一记忆 */
+function stripTypePrefix(slug: string): string {
+  for (const t of MEMORY_TYPES) {
+    if (slug.startsWith(`${t}-`)) return slug.slice(t.length + 1);
+  }
+  return slug;
+}
+
 /**
  * 项目级持久记忆，存于 <cwd>/.kda/memory/。
- * 每条记忆一个 frontmatter md 文件，外加代码生成的 MEMORY.md 索引。
+ * 每条记忆一个 frontmatter md 文件（文件名 = <type>-<slug>.md，类型自动前缀），
+ * 外加代码生成的 MEMORY.md 索引。system prompt 只注入索引，正文经 read 取用。
  */
 export class MemoryStore {
   constructor(private cwd: string) {}
@@ -36,8 +53,8 @@ export class MemoryStore {
     this.ensureDir();
   }
 
-  private filePath(name: string): string {
-    return resolve(this.dir, `${name}.md`);
+  private filePath(id: string): string {
+    return resolve(this.dir, `${id}.md`);
   }
 
   /** 存储目录绝对路径 */
@@ -65,34 +82,56 @@ export class MemoryStore {
     }
   }
 
-  /** 容错解析：frontmatter 缺失/非法时 name 取文件名、type 退化为 fact；超限 body 截回 */
+  /** 按完整 id 读取单条记忆；不存在（或 id 非法）返回 null */
+  read(id: string): MemoryFile | null {
+    if (!MEMORY_NAME_RE.test(id)) return null;
+    try {
+      const raw = readFileSync(this.filePath(id), "utf-8");
+      return this.parseFile(`${id}.md`, raw);
+    } catch {
+      return null;
+    }
+  }
+
+  /** 容错解析：type 取 frontmatter，非法时按文件名前缀识别，仍不识别则降级 dynamic */
   private parseFile(filename: string, raw: string): MemoryFile {
     const { fm, body } = parseFrontmatter(raw);
     // 去掉文件末尾换行，使 body 往返（save → load）不累积空白
     const trimmed = body.endsWith("\n") ? body.slice(0, -1) : body;
-    const name = (fm.name || filename.replace(/\.md$/, "")).slice(0, 50);
-    const type = (MEMORY_TYPES as readonly string[]).includes(fm.type)
-      ? (fm.type as MemoryFile["type"])
-      : "fact";
+    const id = (fm.name || filename.replace(/\.md$/, "")).slice(0, MAX_NAME_CHARS);
+    const type = this.resolveType(fm.type, id);
     const description = fm.description ?? "";
     return {
-      name,
+      id,
       type,
       description,
       updated: fm.updated ?? "",
-      body: this.truncateBody({ name, type, description, updated: fm.updated ?? "" }, trimmed),
+      body: this.truncateBody({ name: id, type, description, updated: fm.updated ?? "" }, trimmed),
     };
+  }
+
+  private resolveType(raw: string | undefined, id: string): MemoryType {
+    if (raw && (MEMORY_TYPES as readonly string[]).includes(raw)) return raw as MemoryType;
+    for (const t of MEMORY_TYPES) {
+      if (id.startsWith(`${t}-`)) return t;
+    }
+    return "dynamic";
   }
 
   /** 校验并写入一条记忆（同名覆盖）。达文件数上限的新增抛错，超限 body 截断。 */
   upsert(input: MemoryInput): MemoryFile {
-    if (!MEMORY_NAME_RE.test(input.name)) {
-      throw new Error(
-        `Invalid memory name "${input.name}": use kebab-case (lowercase letters, digits, hyphens), max 50 chars`,
-      );
-    }
     if (!(MEMORY_TYPES as readonly string[]).includes(input.type)) {
       throw new Error(`Invalid memory type "${input.type}": must be one of ${MEMORY_TYPES.join(" | ")}`);
+    }
+    const slug = stripTypePrefix(input.slug.trim());
+    if (!slug) {
+      throw new Error("Memory slug is required (short kebab-case name, without the type prefix)");
+    }
+    const id = `${input.type}-${slug}`;
+    if (!MEMORY_NAME_RE.test(id)) {
+      throw new Error(
+        `Invalid memory name "${slug}" (stored as "${id}"): use kebab-case (lowercase letters, digits, hyphens), max ${MAX_NAME_CHARS} chars including the type prefix`,
+      );
     }
     if (!input.description.trim()) {
       throw new Error("Memory description is required");
@@ -105,32 +144,27 @@ export class MemoryStore {
     }
 
     const existing = this.loadAll();
-    const isNew = !existing.some((m) => m.name === input.name);
+    const isNew = !existing.some((m) => m.id === id);
     if (isNew && existing.length >= MAX_MEMORY_FILES) {
       throw new Error(
-        `Memory limit reached (${MAX_MEMORY_FILES} files). Delete one first. Existing: ${existing.map((m) => m.name).join(", ")}`,
+        `Memory limit reached (${MAX_MEMORY_FILES} files). Delete one first. Existing: ${existing.map((m) => m.id).join(", ")}`,
       );
     }
 
     const updated = new Date().toISOString();
-    const fm: Frontmatter = {
-      name: input.name,
-      type: input.type,
-      description: input.description,
-      updated,
-    };
+    const fm: Frontmatter = { name: id, type: input.type, description: input.description, updated };
     const body = this.truncateBody(fm, input.body);
 
     this.ensureDir();
-    writeFileSync(this.filePath(input.name), serializeFrontmatter(fm) + body + "\n", "utf-8");
+    writeFileSync(this.filePath(id), serializeFrontmatter(fm) + body + "\n", "utf-8");
     this.writeIndex();
-    return { ...input, updated, body };
+    return { id, type: input.type, description: input.description, updated, body };
   }
 
-  /** 删除一条记忆并更新索引；不存在（或 name 非法）返回 false */
-  delete(name: string): boolean {
-    if (!MEMORY_NAME_RE.test(name)) return false;
-    const path = this.filePath(name);
+  /** 删除一条记忆并更新索引；不存在（或 id 非法）返回 false */
+  delete(id: string): boolean {
+    if (!MEMORY_NAME_RE.test(id)) return false;
+    const path = this.filePath(id);
     if (!existsSync(path)) return false;
     rmSync(path);
     this.writeIndex();
@@ -156,7 +190,7 @@ export class MemoryStore {
     const all = this.loadAll();
     const lines = ["# Project Memory", ""];
     for (const m of all) {
-      lines.push(`- [${m.name}](${m.name}.md) — ${m.description}`);
+      lines.push(`- [${m.id}](${m.id}.md) — ${m.description}`);
     }
     let content = lines.join("\n") + "\n";
     if (content.length > MAX_INDEX_CHARS) {
@@ -166,35 +200,31 @@ export class MemoryStore {
     writeFileSync(resolve(this.dir, INDEX_FILENAME), content, "utf-8");
   }
 
-  /** 注入 system prompt 的文本；无记忆时返回空串。超总限时整文件为单位丢弃尾部。 */
+  /** 注入 system prompt 的文本（仅索引 + 取用提示）；无记忆时返回空串 */
   buildInjectionText(): string {
     const all = this.loadAll();
     if (all.length === 0) return "";
 
-    const head = [
-      "## Project Memory",
-      "",
-      "Long-lived knowledge about this project, carried across sessions. Maintained with the memory tool.",
-      "",
-    ];
-    const index = all.map((m) => `- [${m.name}](${m.name}.md) — ${m.description}`);
-    const prefix = [...head, ...index].join("\n");
+    const index = all.map((m) => `- [${m.id}](${m.id}.md) — ${m.description}`);
+    // 头部 + 索引 + 空行 + 尾部提示
+    const fits = (ls: string[]) =>
+      INJECTION_HEAD.length + 1 + ls.join("\n").length + 2 + INJECTION_TAIL.length <= MAX_INJECTION_CHARS;
 
-    const blocks: string[] = [];
-    let used = prefix.length;
-    for (const m of all) {
-      const block = `\n\n### ${m.name}\n\n${m.description}\n\n${m.body}`;
-      if (used + block.length > MAX_INJECTION_CHARS) break;
-      blocks.push(block);
-      used += block.length;
+    let lines = index;
+    let omitted = 0;
+    if (!fits(lines)) {
+      lines = [];
+      for (const line of index) {
+        if (!fits([...lines, line])) break;
+        lines.push(line);
+      }
+      omitted = all.length - lines.length;
     }
 
-    let text = prefix + blocks.join("");
-    const omitted = all.length - blocks.length;
-    if (omitted > 0) {
-      text += `\n\n... (${omitted} more ${omitted === 1 ? "memory" : "memories"} omitted)`;
-    }
-    return text;
+    const parts = [INJECTION_HEAD, "", ...lines];
+    if (omitted > 0) parts.push(`... (${omitted} more ${omitted === 1 ? "memory" : "memories"} omitted)`, "");
+    parts.push("", INJECTION_TAIL);
+    return parts.join("\n");
   }
 
   /** 截断 body 使落盘文件（frontmatter 含内）满足行数/字符限额：先按行截、再按字符截 */

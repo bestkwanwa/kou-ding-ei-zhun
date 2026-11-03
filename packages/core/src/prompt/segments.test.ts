@@ -28,15 +28,17 @@ describe("memory segment", () => {
     expect(memory({ cwd, registry: new ToolRegistry() })).toBe("");
   });
 
-  it("returns index and bodies when memories exist", () => {
+  it("returns index-only injection (with hints, no bodies) when memories exist", () => {
     const cwd = makeCwd();
     new MemoryStore(cwd).upsert({
-      name: "build-system", type: "project", description: "pnpm workspaces", body: "Run `pnpm -r build`.",
+      type: "dynamic", slug: "toolchain", description: "pnpm workspaces", body: "Run `pnpm -r build`.",
     });
     const text = memory({ cwd, registry: new ToolRegistry() });
     expect(text).toContain("## Project Memory");
-    expect(text).toContain("- [build-system](build-system.md) — pnpm workspaces");
-    expect(text).toContain("Run `pnpm -r build`.");
+    expect(text).toContain("- [dynamic-toolchain](dynamic-toolchain.md) — pnpm workspaces");
+    expect(text).toContain("use the memory tool's read action");
+    expect(text).toContain("clues, not facts");
+    expect(text).not.toContain("Run `pnpm -r build`."); // 正文不注入
   });
 });
 
