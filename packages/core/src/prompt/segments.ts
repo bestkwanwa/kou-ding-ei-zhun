@@ -21,7 +21,7 @@ Working directory: ${ctx.cwd}`;
 export const TOOL_GUIDE: PromptSegment = `Tool usage rules:
 - Always use read_file to read file contents. NEVER use run_command with cat/head/tail to read files.
 - Use run_command only for: running tests, builds, git operations, installing packages, and other non-reading commands.
-- Core tools are always available: read_file, write_file, edit_file, run_command, list_files, glob, grep, search_tools, memory.
+- Core tools are always available: read_file, write_file, edit_file, run_command, list_files, glob, grep, search_tools, memory, ingest_docs, search_knowledge.
 - Additional tools exist but are not loaded. Use search_tools(query) to discover them by keyword.
 - After search_tools returns a tool, you can call it directly in the same conversation.`;
 

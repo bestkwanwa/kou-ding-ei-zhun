@@ -10,8 +10,11 @@ import { fetchUrlTool } from "./fetch_url.js";
 import { previewTool } from "./preview.js";
 import { webSearchTool } from "./web_search.js";
 import { createMemoryTool } from "./memory.js";
+import { createRagTools } from "./rag-tools.js";
 import { createSearchToolsTool } from "./search_tools.js";
 import { MemoryStore } from "../memory/index.js";
+import { RagStore, createRagService, createEmbedder, DEFAULT_RAG_DB_FILENAME } from "../rag/index.js";
+import { resolve } from "node:path";
 
 /** 创建包含所有内置工具的 registry */
 export function createDefaultRegistry(cwd: string): ToolRegistry {
@@ -31,8 +34,15 @@ export function createDefaultRegistry(cwd: string): ToolRegistry {
   // 系统级工具：依赖外显构造 + init，经参数注入工厂
   const memoryStore = new MemoryStore(cwd);
   memoryStore.init();
+  // RAG 工具
+  const ragStore = new RagStore(resolve(cwd, ".kda", "rag", process.env.RAG_DB_FILENAME ?? DEFAULT_RAG_DB_FILENAME));
+  ragStore.init();
+  const ragService = createRagService({ cwd, store: ragStore, embedder: createEmbedder() });
+  const { ingestDocsTool, searchKnowledgeTool } = createRagTools(ragService);
   registry.register(createSearchToolsTool(registry));
   registry.register(createMemoryTool(memoryStore));
+  registry.register(ingestDocsTool);
+  registry.register(searchKnowledgeTool);
   return registry;
 }
 

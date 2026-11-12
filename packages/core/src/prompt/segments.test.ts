@@ -53,9 +53,9 @@ describe("createSystemPromptBuilder segment order", () => {
     expect(order).toEqual(["core", "tool-guide", "lazy-tools", "memory", "session-context"]);
   });
 
-  it("TOOL_GUIDE core tools line includes memory", () => {
+  it("TOOL_GUIDE core tools line includes memory and rag tools", () => {
     const cwd = makeCwd();
     const prompt = createSystemPromptBuilder({ cwd, registry: new ToolRegistry() }).build();
-    expect(prompt).toContain("search_tools, memory.");
+    expect(prompt).toContain("search_tools, memory, ingest_docs, search_knowledge.");
   });
 });
