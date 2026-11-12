@@ -26,21 +26,25 @@ export class RagStore {
     this.db.pragma("foreign_keys = ON");
     sqliteVec.load(this.db);
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS meta (
+        key TEXT PRIMARY KEY,          -- 元数据键：dims（向量维度）/ embedding_model（向量模型名）
+        value TEXT                     -- 元数据值
+      );
       CREATE TABLE IF NOT EXISTS documents (
-        id INTEGER PRIMARY KEY,
-        path TEXT UNIQUE NOT NULL,
-        hash TEXT NOT NULL,
-        chunk_count INTEGER NOT NULL,
-        updated_at TEXT NOT NULL
+        id INTEGER PRIMARY KEY,        -- 文档自增主键，被 chunks.doc_id 引用
+        path TEXT UNIQUE NOT NULL,     -- 相对 .kda/knowledge/ 的文件路径（唯一，按路径增量导入）
+        hash TEXT NOT NULL,            -- 文件内容 sha256，与已有值相同则跳过重新嵌入
+        chunk_count INTEGER NOT NULL,  -- 该文档当前的分块数
+        updated_at TEXT NOT NULL       -- 最近一次导入时间（ISO 8601）
       );
       CREATE TABLE IF NOT EXISTS chunks (
-        id INTEGER PRIMARY KEY,
-        doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-        ordinal INTEGER NOT NULL,
-        heading TEXT NOT NULL DEFAULT '',
-        text TEXT NOT NULL
+        id INTEGER PRIMARY KEY,        -- 分块自增主键，同时作为 chunks_fts 的 rowid 与 chunks_vec 的主键
+        doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, -- 所属文档（documents.id，级联删除）
+        ordinal INTEGER NOT NULL,      -- 分块在文档内的序号，从 0 递增
+        heading TEXT NOT NULL DEFAULT '', -- 分块所在的最近 markdown 标题（无则空串）
+        text TEXT NOT NULL             -- 分块正文
       );
+      -- rowid = chunks.id；trigram 分词器对 CJK 子串匹配友好
       CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, tokenize='trigram');
     `);
   }
@@ -70,7 +74,10 @@ export class RagStore {
       this.db.exec("DELETE FROM chunks; DELETE FROM chunks_fts; DELETE FROM documents;");
     }
     this.db.exec(
-      `CREATE VIRTUAL TABLE chunks_vec USING vec0(chunk_id INTEGER PRIMARY KEY, embedding FLOAT[${dims}] distance_metric=cosine)`,
+      `CREATE VIRTUAL TABLE chunks_vec USING vec0(
+         chunk_id INTEGER PRIMARY KEY,   -- 对应 chunks.id，删除文档时同步清理
+         embedding FLOAT[${dims}] distance_metric=cosine  -- 查询向量，维度首次导入时确定；余弦距离（sim = 1 - distance）
+       )`,
     );
     this.setMeta("dims", String(dims));
     this.setMeta("embedding_model", model);
