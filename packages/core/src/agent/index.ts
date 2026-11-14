@@ -1,8 +1,6 @@
 import { Effect, Console } from "effect";
 import chalk from "chalk";
 import * as readline from "node:readline";
-import { appendFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   streamText,
   type ToolSet,
@@ -22,23 +20,7 @@ import { createSystemPromptBuilder } from "../prompt/index.js";
 import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS, compressMessages } from "../context/index.js";
 import { createDefaultCommandDispatcher } from "../commands/index.js";
 import { shouldRunMaintenance } from "../memory/maintenance.js";
-
-// Debug logger — writes to .kda/logs/debug.log in cwd
-function createLogger(cwd: string) {
-  const logDir = resolve(cwd, ".kda", "logs");
-  mkdirSync(logDir, { recursive: true });
-  const logPath = resolve(logDir, "debug.log");
-  const ts = () => new Date().toISOString();
-  return {
-    log(...args: unknown[]) {
-      const line = `[${ts()}] ${args.map((a) => (typeof a === "string" ? a : JSON.stringify(a, null, 2))).join(" ")}\n`;
-      appendFileSync(logPath, line, "utf-8");
-    },
-    clear() {
-      writeFileSync(logPath, `[${ts()}] === kda debug log started ===\n`, "utf-8");
-    },
-  };
-}
+import { createLogger } from "../utils/logger.js";
 
 export interface AgentOptions {
   cwd: string;
