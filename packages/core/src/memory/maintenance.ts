@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseFrontmatter } from "./frontmatter.js";
+import { parseFrontmatter } from "../utils/frontmatter.js";
 import { MAINTENANCE_MARKER_ID } from "./types.js";
 import type { SessionMetadata } from "../session/types.js";
 

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseFrontmatter, serializeFrontmatter } from "./frontmatter.js";
-import type { Frontmatter } from "./frontmatter.js";
+import { parseFrontmatter, serializeFrontmatter } from "../utils/frontmatter.js";
+import type { Frontmatter } from "../utils/frontmatter.js";
 import type { MemoryFile, MemoryInput, MemoryType } from "./types.js";
 import {
   MAINTENANCE_MARKER_ID,

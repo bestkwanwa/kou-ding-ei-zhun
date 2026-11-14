@@ -1,6 +1,4 @@
 export { MemoryStore } from "./store.js";
-export { parseFrontmatter, serializeFrontmatter } from "./frontmatter.js";
-export type { Frontmatter } from "./frontmatter.js";
 export type { MemoryFile, MemoryInput, MemoryType } from "./types.js";
 export {
   MEMORY_TYPES,
