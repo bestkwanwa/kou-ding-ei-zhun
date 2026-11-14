@@ -7,6 +7,8 @@ export interface SessionData {
   summary: string;
   messages: ModelMessage[];
   discoveredTools: string[];
+  /** 会话内已激活的 skill slug（与 discoveredTools 对称流动） */
+  loadedSkills: string[];
 }
 
 export interface SessionMetadata {

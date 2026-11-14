@@ -2,10 +2,11 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memory, memoryMaintenance } from "./segments.js";
+import { memory, memoryMaintenance, skillIndex, loadedSkills } from "./segments.js";
 import { createSystemPromptBuilder } from "./index.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { MemoryStore } from "../memory/index.js";
+import { SkillManager } from "../skills/index.js";
 
 // --- Helpers ---
 
@@ -73,15 +74,54 @@ describe("memoryMaintenance segment", () => {
   });
 });
 
+describe("skill segments", () => {
+  it("skillIndex returns empty string without a skills manager or skills dir", () => {
+    const cwd = makeCwd();
+    expect(skillIndex({ cwd, registry: new ToolRegistry() })).toBe("");
+    expect(skillIndex({ cwd, registry: new ToolRegistry(), skills: new SkillManager(cwd) })).toBe("");
+  });
+
+  it("skillIndex injects the index (no bodies) and loadedSkills injects only loaded bodies", () => {
+    const cwd = makeCwd();
+    const skillDir = join(cwd, ".kda", "skills", "deploy");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      "---\ndescription: Deploy the app\n---\nRun pnpm deploy now\n",
+      "utf-8",
+    );
+    const skills = new SkillManager(cwd);
+
+    const ctx = { cwd, registry: new ToolRegistry(), skills };
+    expect(skillIndex(ctx)).toContain("- deploy — Deploy the app");
+    expect(skillIndex(ctx)).not.toContain("Run pnpm deploy now");
+    expect(loadedSkills(ctx)).toBe(""); // 未激活
+
+    skills.load("deploy");
+    expect(loadedSkills(ctx)).toContain("## Active Skill: deploy");
+    expect(loadedSkills(ctx)).toContain("Run pnpm deploy now");
+    expect(skillIndex(ctx)).toContain("[active]");
+  });
+});
+
 describe("createSystemPromptBuilder segment order", () => {
-  it("registers segments in order: core → tool-guide → lazy-tools → memory → memory-maintenance → session-context", () => {
+  it("registers segments in order: core → tool-guide → lazy-tools → skill-index → loaded-skills → memory → memory-maintenance → session-context", () => {
     const cwd = makeCwd();
     const builder = createSystemPromptBuilder({ cwd, registry: new ToolRegistry() });
     const order = builder
       .debug()
       .split("\n")
       .map((l) => l.trim().split(":")[0]);
-    expect(order).toEqual(["core", "tool-guide", "lazy-tools", "memory", "memory-maintenance", "session-context"]);
+    expect(order).toEqual([
+      "core",
+      "tool-guide",
+      "lazy-tools",
+      "skill-index",
+      "loaded-skills",
+      "memory",
+      "memory-maintenance",
+      "session-context",
+    ]);
   });
 
   it("TOOL_GUIDE core tools line includes memory and rag tools", () => {

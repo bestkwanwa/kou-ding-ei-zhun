@@ -34,6 +34,12 @@ export const lazyTools: PromptSegment = (ctx) => {
   return `Additional tools (use search_tools to load their full schema):\n${lines.join("\n")}`;
 };
 
+/** 项目 skill 索引（无 skill 或未注入管理器时返回空串，段落自动消失；每次渲染从磁盘刷新） */
+export const skillIndex: PromptSegment = (ctx) => ctx.skills?.buildIndexInjection() ?? "";
+
+/** 已激活 skill 正文（未激活返回空串；每次渲染从磁盘刷新） */
+export const loadedSkills: PromptSegment = (ctx) => ctx.skills?.buildLoadedInjection() ?? "";
+
 /** Session 上下文（仅恢复会话时出现） */
 export const sessionContext: PromptSegment = (ctx) => {
   if (!ctx.session) return "";

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CommandDispatcher } from "./dispatcher.js";
 import { createDefaultCommandDispatcher, DEFAULT_COMMANDS } from "./index.js";
+import { SkillManager } from "../skills/index.js";
 import type { Command } from "./types.js";
 
 // --- Helpers ---
@@ -59,6 +63,84 @@ describe("CommandDispatcher", () => {
     expect(output).toContain("Unknown command: /nope");
     expect(output).toContain("/alpha");
     expect(output).toContain("/beta");
+  });
+});
+
+describe("skill shortcut fallback", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  let dir: string;
+
+  function makeSkillCtx(): { cwd: string; skills: SkillManager } {
+    dir = mkdtempSync(join(tmpdir(), "kda-skill-dispatch-"));
+    const base = join(dir, ".kda", "skills");
+    mkdirSync(join(base, "deploy"), { recursive: true });
+    writeFileSync(join(base, "deploy", "SKILL.md"), "---\ndescription: Deploy the app\n---\nbody\n", "utf-8");
+    return { cwd: dir, skills: new SkillManager(dir) };
+  }
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("unknown /<skill-name> activates the skill and returns the forward string", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const ctx = makeSkillCtx();
+    const dispatcher = new CommandDispatcher(ctx);
+
+    const result = dispatcher.handle("/deploy --prod");
+    expect(typeof result).toBe("string");
+    expect(result).toContain('Execute the skill "deploy" now');
+    expect(result).toContain("Arguments: --prod");
+    expect(ctx.skills.isLoaded("deploy")).toBe(true);
+    const output = log.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(output).toContain('Skill "deploy" activated.');
+    expect(output).not.toContain("Unknown command");
+  });
+
+  it("is case-insensitive on the skill name and omits Arguments when empty", () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const ctx = makeSkillCtx();
+    const dispatcher = new CommandDispatcher(ctx);
+
+    const result = dispatcher.handle("/DEPLOY");
+    expect(typeof result).toBe("string");
+    expect(result).not.toContain("Arguments");
+  });
+
+  it("falls through to unknown-command output when no skill matches", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const ctx = makeSkillCtx();
+    const dispatcher = new CommandDispatcher(ctx);
+    dispatcher.register(makeCommand({ name: "alpha" }));
+
+    expect(dispatcher.handle("/nope arg")).toBe(true);
+    const output = log.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(output).toContain("Unknown command: /nope");
+    expect(output).toContain("/alpha");
+  });
+
+  it("falls through when ctx has no skills manager (regression guard)", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const dispatcher = new CommandDispatcher({ cwd: "/tmp" });
+
+    expect(dispatcher.handle("/deploy")).toBe(true);
+    const output = log.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(output).toContain("Unknown command: /deploy");
+  });
+
+  it("registered commands win over same-named skills", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const ctx = makeSkillCtx();
+    const dispatcher = new CommandDispatcher(ctx);
+    dispatcher.register(makeCommand({ name: "deploy" }));
+
+    expect(dispatcher.handle("/deploy arg")).toBe(true);
+    const output = log.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(output).toContain("ok"); // 内置命令执行，未走 skill 转发
+    expect(ctx.skills.isLoaded("deploy")).toBe(false);
   });
 });
 

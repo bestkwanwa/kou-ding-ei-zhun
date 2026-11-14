@@ -17,6 +17,7 @@ import { withRetry } from "../llm/retry.js";
 import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
 import { TokenBudgetDetector, type TokenBudgetConfig } from "./token-budget.js";
 import { SessionStore, type SessionData } from "../session/index.js";
+import { SkillManager } from "../skills/index.js";
 import { createSystemPromptBuilder } from "../prompt/index.js";
 import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS, compressMessages } from "../context/index.js";
 import { createDefaultCommandDispatcher } from "../commands/index.js";
@@ -115,6 +116,14 @@ export function runAgent(
   // Session store for persistence
   const sessionStore = new SessionStore(options.cwd);
 
+  // 技能管理器：dispatcher（/skill 与 /<skill-name> 快捷执行）与 prompt 渲染共用同一实例
+  const skills = new SkillManager(options.cwd);
+  if (options.session) {
+    for (const slug of options.session.loadedSkills) {
+      skills.load(slug); // skill 目录已删则 resolve 失败，静默跳过
+    }
+  }
+
   // 记忆维护触发判定：整个 runAgent 只算一次（SessionStore.list() 全量读盘，绝不进每轮 prompt 渲染）
   const memoryMaintenanceDue = shouldRunMaintenance(options.cwd, sessionStore.list());
 
@@ -168,6 +177,7 @@ export function runAgent(
         const promptBuilder = createSystemPromptBuilder({
           cwd: options.cwd,
           registry,
+          skills,
           session: sessionCtx,
           memoryMaintenanceDue,
         });
@@ -432,8 +442,8 @@ export function runAgent(
     });
   };
 
-  // Slash command dispatcher ("/" 前缀输入在此拦截，不进 LLM)
-  const dispatcher = createDefaultCommandDispatcher({ cwd: options.cwd });
+  // Slash command dispatcher ("/" 前缀输入在此拦截，不进 LLM；/<skill-name> 快捷执行返回转发文本)
+  const dispatcher = createDefaultCommandDispatcher({ cwd: options.cwd, skills });
 
   // Main conversation loop: tool loop → read input → repeat
   return Effect.gen(function* () {
@@ -481,6 +491,7 @@ export function runAgent(
         summary: sessionSummary,
         messages: history,
         discoveredTools: registry.getDiscoveredTools(),
+        loadedSkills: skills.getLoadedSkills(),
       });
     };
 
@@ -509,14 +520,21 @@ export function runAgent(
         return;
       }
 
-      // 斜杠命令：处理则跳过本轮 LLM 调用（不写入 history、不触发 saveSession）
-      if (dispatcher.handle(trimmed)) continue;
+      // 斜杠命令：true = 已处理跳过本轮；string = 命令产生的 LLM 转发输入（/<skill-name> 快捷执行）
+      const loadedSnapshot = skills.getLoadedSkills().join("\n");
+      const handled = dispatcher.handle(trimmed);
+      if (handled === true) {
+        // /skill load|unload 改变了激活集 → 立即持久化（命令本身不触发 saveSession）
+        if (skills.getLoadedSkills().join("\n") !== loadedSnapshot) saveSession();
+        continue;
+      }
+      const llmInput = handled === false ? trimmed : handled;
 
-      log.log(`[conv] user input:`, trimmed);
+      log.log(`[conv] user input:`, llmInput);
       log.log(`[conv] passing history=${history.length} messages`);
       history = yield* runToolLoop([
         ...history,
-        { role: "user", content: trimmed },
+        { role: "user", content: llmInput },
       ]);
       log.log(`[conv] turn done, history=${history.length} messages`);
       saveSession();

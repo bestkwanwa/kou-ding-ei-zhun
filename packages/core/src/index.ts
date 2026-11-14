@@ -16,6 +16,9 @@ export type { SessionData, SessionMetadata } from "./session/index.js";
 export { MemoryStore } from "./memory/index.js";
 export type { MemoryFile, MemoryInput, MemoryType } from "./memory/index.js";
 
+export { SkillManager } from "./skills/index.js";
+export type { SkillFile } from "./skills/index.js";
+
 export { RagStore, createRagService, createEmbedder, fuseResults } from "./rag/index.js";
 export type { RagService, Embedder, RagDoc, RagChunk, RetrievedChunk, IngestSummary } from "./rag/index.js";
 

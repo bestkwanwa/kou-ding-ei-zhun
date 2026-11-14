@@ -1,5 +1,9 @@
+import type { SkillManager } from "../skills/index.js";
+
 export interface CommandContext {
   cwd: string;
+  /** 技能管理器（/skill 命令与 /<skill-name> 快捷执行依赖；测试等场景可省略） */
+  skills?: SkillManager;
 }
 
 export interface Command {

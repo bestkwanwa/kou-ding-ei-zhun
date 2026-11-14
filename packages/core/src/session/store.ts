@@ -11,6 +11,7 @@ interface MetaLine {
   updatedAt: string;
   summary: string;
   discoveredTools: string[];
+  loadedSkills: string[];
 }
 
 interface MessageLine {
@@ -72,6 +73,7 @@ export class SessionStore {
       updatedAt: data.updatedAt,
       summary: data.summary,
       discoveredTools: data.discoveredTools,
+      loadedSkills: data.loadedSkills,
     };
 
     // Only wrap new messages (beyond existing count) with fresh timestamps
@@ -108,6 +110,8 @@ export class SessionStore {
         summary: meta.summary,
         messages,
         discoveredTools: meta.discoveredTools,
+        // 旧会话文件缺该字段 → 归一化为空集
+        loadedSkills: meta.loadedSkills ?? [],
       };
     } catch {
       return null;
@@ -161,6 +165,7 @@ export class SessionStore {
       summary,
       messages: [],
       discoveredTools: [],
+      loadedSkills: [],
     };
   }
 }

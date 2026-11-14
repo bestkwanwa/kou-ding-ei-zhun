@@ -1,8 +1,11 @@
 import type { ToolRegistry } from "../tools/registry.js";
+import type { SkillManager } from "../skills/index.js";
 
 export interface PromptContext {
   cwd: string;
   registry: ToolRegistry;
+  /** 技能管理器：索引与已激活正文注入（省略时两段为空） */
+  skills?: SkillManager;
   session?: {
     summary: string;
     messageCount: number;
