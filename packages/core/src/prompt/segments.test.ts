@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memory } from "./segments.js";
+import { memory, memoryMaintenance } from "./segments.js";
 import { createSystemPromptBuilder } from "./index.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { MemoryStore } from "../memory/index.js";
@@ -42,15 +42,46 @@ describe("memory segment", () => {
   });
 });
 
+describe("memoryMaintenance segment", () => {
+  it("returns empty when not due (gate 1)", () => {
+    const cwd = makeCwd();
+    expect(memoryMaintenance({ cwd, registry: new ToolRegistry() })).toBe("");
+    expect(memoryMaintenance({ cwd, registry: new ToolRegistry(), memoryMaintenanceDue: false })).toBe("");
+  });
+
+  it("renders the four-phase directive when due and unrecorded", () => {
+    const cwd = makeCwd();
+    const text = memoryMaintenance({ cwd, registry: new ToolRegistry(), memoryMaintenanceDue: true });
+    expect(text).toContain("Memory Maintenance Due");
+    expect(text).toContain("Phase 1: Locate");
+    expect(text).toContain("Phase 4: Record");
+    expect(text).toContain("slug=memory-maintenance");
+    expect(text).toContain("last run: never");
+    expect(text).toContain("take the filename");
+  });
+
+  it("disappears once a fresh marker exists on disk (gate 2)", () => {
+    const cwd = makeCwd();
+    const memDir = join(cwd, ".kda", "memory");
+    mkdirSync(memDir, { recursive: true });
+    writeFileSync(
+      join(memDir, "dynamic-memory-maintenance.md"),
+      `---\nname: dynamic-memory-maintenance\ntype: dynamic\ndescription: marker\nupdated: ${new Date().toISOString()}\n---\nreport\n`,
+      "utf-8",
+    );
+    expect(memoryMaintenance({ cwd, registry: new ToolRegistry(), memoryMaintenanceDue: true })).toBe("");
+  });
+});
+
 describe("createSystemPromptBuilder segment order", () => {
-  it("registers segments in order: core → tool-guide → lazy-tools → memory → session-context", () => {
+  it("registers segments in order: core → tool-guide → lazy-tools → memory → memory-maintenance → session-context", () => {
     const cwd = makeCwd();
     const builder = createSystemPromptBuilder({ cwd, registry: new ToolRegistry() });
     const order = builder
       .debug()
       .split("\n")
       .map((l) => l.trim().split(":")[0]);
-    expect(order).toEqual(["core", "tool-guide", "lazy-tools", "memory", "session-context"]);
+    expect(order).toEqual(["core", "tool-guide", "lazy-tools", "memory", "memory-maintenance", "session-context"]);
   });
 
   it("TOOL_GUIDE core tools line includes memory and rag tools", () => {

@@ -1,5 +1,12 @@
 import { jsonSchema } from "ai";
-import { MEMORY_TYPES, MEMORY_NAME_RE, MAX_DESCRIPTION_CHARS, MAX_FILE_CHARS } from "../memory/index.js";
+import {
+  MEMORY_TYPES,
+  MEMORY_NAME_RE,
+  MAX_DESCRIPTION_CHARS,
+  MAX_FILE_CHARS,
+  lintMemory,
+  formatLintReport,
+} from "../memory/index.js";
 import type { MemoryStore, MemoryType } from "../memory/index.js";
 import type { Tool } from "./types.js";
 
@@ -11,25 +18,32 @@ export function createMemoryTool(memoryStore: MemoryStore): Tool {
   return {
     name: "memory",
     description:
-      "Save, read, or delete long-term memories about this project, persisted in .kda/memory/ " +
+      "Save, read, delete, or lint long-term memories about this project, persisted in .kda/memory/ " +
       "and indexed in your system prompt in every future session here.\n\n" +
       "Record ONLY these four kinds of durable knowledge:\n" +
       "- user: user profile — role, background, habits, preferences\n" +
       "- feedback: corrections to your behavior — e.g. the user says \"don't do X\" or \"X is better than Y\"\n" +
       "- dynamic: project dynamics — ongoing work, decisions, dates. ALWAYS convert relative dates to absolute ones (\"next Monday\" → 2026-11-09)\n" +
       "- resource: pointers to external systems — URLs, dashboards, tickets, paths outside this repo\n\n" +
-      "NEVER record: anything derivable from the code, anything derivable from git history, " +
-      "or anything already documented in project docs (CLAUDE.md, README, etc.).\n\n" +
+      "NEVER record:\n" +
+      "- Anything derivable from the code itself (structure, names, dependencies, conventions)\n" +
+      "- Anything derivable from git history (recent changes, branches, why a change was made)\n" +
+      "- Anything already documented in project docs (CLAUDE.md, README, docs/)\n" +
+      "- Transient or temporary state (current errors, work in progress, one-off outputs, session-only context)\n\n" +
       "The system prompt shows only the memory index — call read (with the name shown in the index) " +
-      "to get a memory's full content. Memories are clues, not facts: verify them against the " +
-      "codebase before relying on them. To update, save again with the same type and slug.",
+      "to get a memory's full content (including its lastRead/updated timestamps). " +
+      "Memories are clues, not facts: verify them against the codebase before relying on them. " +
+      "To update, save again with the same type and slug.",
     parameters: jsonSchema({
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["save", "read", "delete"],
-          description: "save = create or update a memory; read = get one memory's full content; delete = remove one",
+          enum: ["save", "read", "delete", "lint"],
+          description:
+            "save = create or update a memory; read = get one memory's full content; " +
+            "delete = remove one; lint = scan all memories for issues (staleness, broken paths, duplicates) " +
+            "with content previews",
         },
         type: {
           type: "string",
@@ -43,7 +57,9 @@ export function createMemoryTool(memoryStore: MemoryStore): Tool {
         },
         name: {
           type: "string",
-          description: "Required for read/delete: the full memory name as shown in the index (e.g. feedback-no-npm)",
+          description:
+            "Required for read/delete: the full memory name as shown in the index, or the filename " +
+            "(e.g. feedback-no-npm or feedback-no-npm.md)",
         },
         description: {
           type: "string",
@@ -57,7 +73,7 @@ export function createMemoryTool(memoryStore: MemoryStore): Tool {
       },
       required: ["action"],
     }),
-    async execute(args, _ctx) {
+    async execute(args, ctx) {
       const action = args.action as string;
 
       if (action === "save") {
@@ -93,16 +109,23 @@ export function createMemoryTool(memoryStore: MemoryStore): Tool {
         if (action === "read") {
           const m = memoryStore.read(name);
           if (!m) return notFound(memoryStore, name);
-          return `name: ${m.id}\ntype: ${m.type}\ndescription: ${m.description}\nupdated: ${m.updated}\n\n${m.body}`;
+          return (
+            `name: ${m.id}\ntype: ${m.type}\ndescription: ${m.description}\n` +
+            `updated: ${m.updated}\nlastRead: ${m.lastRead ?? "(never)"}\n\n${m.body}`
+          );
         }
 
         if (!memoryStore.delete(name)) return notFound(memoryStore, name);
         return `Memory deleted: ${name} (index updated)`;
       }
 
-      return `Error: unknown action "${action}" (use "save", "read" or "delete")`;
+      if (action === "lint") {
+        return formatLintReport(lintMemory(ctx.cwd));
+      }
+
+      return `Error: unknown action "${action}" (use "save", "read", "delete" or "lint")`;
     },
-    // read 需容纳整篇正文（文件限额 MAX_FILE_CHARS）+ name/type/description/updated 头部
+    // read 需容纳整篇正文（文件限额 MAX_FILE_CHARS）+ name/type/description/updated/lastRead 头部
     maxResultLength: MAX_FILE_CHARS + 1_000,
   };
 }

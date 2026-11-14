@@ -141,4 +141,55 @@ describe("memory tool", () => {
     expect(out.startsWith("Error:")).toBe(true);
     expect(out).toContain("unknown action");
   });
+
+  it("description carries the four-item exclusion list", () => {
+    const tool = makeTool();
+    const d = tool.description;
+    expect(d).toContain("NEVER record");
+    expect(d).toContain("derivable from the code");
+    expect(d).toContain("git history");
+    expect(d).toContain("project docs");
+    expect(d).toContain("Transient or temporary");
+    expect(d).toContain("lint");
+  });
+
+  it("read output includes lastRead and records it on disk", async () => {
+    const tool = makeTool();
+    await tool.execute(
+      { action: "save", type: "user", slug: "elvis", description: "d", body: "b" }, makeCtx(),
+    );
+    const out = await tool.execute({ action: "read", name: "user-elvis" }, makeCtx());
+    expect(out).toContain("lastRead:");
+    expect(readFileSync(join(dir, ".kda", "memory", "user-elvis.md"), "utf-8")).toContain("lastRead:");
+  });
+
+  it("save (refresh) preserves the recorded lastRead", async () => {
+    const tool = makeTool();
+    await tool.execute(
+      { action: "save", type: "user", slug: "elvis", description: "d", body: "b" }, makeCtx(),
+    );
+    const readOut = await tool.execute({ action: "read", name: "user-elvis" }, makeCtx());
+    const lastRead = /lastRead: (.+)/.exec(readOut)![1].trim();
+    await tool.execute(
+      { action: "save", type: "user", slug: "elvis", description: "d", body: "b2" }, makeCtx(),
+    );
+    expect(readFileSync(join(dir, ".kda", "memory", "user-elvis.md"), "utf-8")).toContain(`lastRead: ${lastRead}`);
+  });
+
+  it("read/delete accept filenames; lint action scans the library", async () => {
+    const tool = makeTool();
+    await tool.execute(
+      { action: "save", type: "user", slug: "elvis", description: "refs docs/old.md", body: "see docs/old.md" },
+      makeCtx(),
+    );
+    expect(await tool.execute({ action: "read", name: "user-elvis.md" }, makeCtx())).toContain("name: user-elvis");
+
+    const lintOut = await tool.execute({ action: "lint" }, makeCtx());
+    expect(lintOut).toContain("Memory lint: 1 memory scanned");
+    expect(lintOut).toContain("docs/old.md");
+    expect(lintOut).toContain("Broken path references");
+
+    const delOut = await tool.execute({ action: "delete", name: "user-elvis.md" }, makeCtx());
+    expect(delOut).toContain("Memory deleted: user-elvis.md");
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryCommand } from "./memory.js";
@@ -59,6 +59,16 @@ describe("/memory command", () => {
     expect(memoryCommand.execute("show", ctx)).toContain("Usage: /memory show <name>");
   });
 
+  it("show records lastRead and accepts a filename argument", () => {
+    const ctx = makeCtx();
+    seedMemories(ctx);
+    const out = memoryCommand.execute("show dynamic-toolchain.md", ctx);
+    expect(out).toContain("name: dynamic-toolchain");
+    expect(out).toContain("lastRead:");
+    const raw = readFileSync(join(dir, ".kda", "memory", "dynamic-toolchain.md"), "utf-8");
+    expect(raw).toContain("lastRead:");
+  });
+
   it("delete removes a memory", () => {
     const ctx = makeCtx();
     const store = seedMemories(ctx);
@@ -81,10 +91,54 @@ describe("/memory command", () => {
     expect(out).toBe(join(dir, ".kda", "memory"));
   });
 
+  it("lint on empty store reports no memories", () => {
+    const ctx = makeCtx();
+    expect(memoryCommand.execute("lint", ctx)).toContain("No memories saved");
+  });
+
+  it("lint reports no issues on a fresh store", () => {
+    const ctx = makeCtx();
+    seedMemories(ctx);
+    expect(memoryCommand.execute("lint", ctx)).toContain("no issues found");
+  });
+
+  it("lint surfaces stale, broken-path and duplicate findings", () => {
+    const ctx = makeCtx();
+    const memDir = join(dir, ".kda", "memory");
+    mkdirSync(memDir, { recursive: true });
+    const now = new Date().toISOString();
+    const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    writeFileSync(
+      join(memDir, "dynamic-sprint.md"),
+      `---\nname: dynamic-sprint\ntype: dynamic\ndescription: sprint refs docs/gone.md\nupdated: ${old}\n---\nsprint docs at docs/gone.md\n`,
+      "utf-8",
+    );
+    writeFileSync(
+      join(memDir, "user-deploy.md"),
+      `---\nname: user-deploy\ntype: user\ndescription: d\nupdated: ${now}\n---\nb\n`,
+      "utf-8",
+    );
+    writeFileSync(
+      join(memDir, "dynamic-deploy.md"),
+      `---\nname: dynamic-deploy\ntype: dynamic\ndescription: d\nupdated: ${now}\n---\nb\n`,
+      "utf-8",
+    );
+
+    const out = memoryCommand.execute("lint", ctx);
+    expect(out).toContain("Stale (1)");
+    expect(out).toContain("dynamic-sprint.md");
+    expect(out).toContain("docs/gone.md");
+    expect(out).toContain("Broken paths (1)");
+    expect(out).toContain("Duplicate slugs (1)");
+    expect(out).toContain("user-deploy.md");
+    expect(out).toContain("Report-only");
+  });
+
   it("help / unknown action prints usage", () => {
     const ctx = makeCtx();
     for (const args of ["help", "explode"]) {
       expect(memoryCommand.execute(args, ctx)).toContain("Usage: /memory");
     }
+    expect(memoryCommand.execute("help", ctx)).toContain("lint");
   });
 });

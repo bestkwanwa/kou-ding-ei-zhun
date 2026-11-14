@@ -6,8 +6,10 @@ export interface MemoryFile {
   type: MemoryType;
   /** 一行描述 */
   description: string;
-  /** ISO 时间戳，只由代码写 */
+  /** ISO 时间戳，只由代码写（即最近一次写入时间） */
   updated: string;
+  /** ISO 时间戳：最近一次显式读取（memory 工具 read / /memory show）；loadAll 不计入 */
+  lastRead?: string;
   /** markdown 正文 */
   body: string;
 }
@@ -35,3 +37,14 @@ export const MAX_INJECTION_CHARS = 8000;
 export const MAX_NAME_CHARS = 50;
 /** kebab-case 白名单，兼防路径穿越 */
 export const MEMORY_NAME_RE = /^[a-z0-9][a-z0-9-]{0,49}$/;
+
+/** 各类型记忆的保质期（天）：超过未读且未写 → lint / 自动整理的过期候选 */
+export const MEMORY_TTL_DAYS: Record<MemoryType, number> = {
+  user: 180,
+  feedback: 180,
+  dynamic: 30,
+  resource: 14,
+};
+
+/** 记忆整理的保留标记 id：正文存整理报告，代码写的 updated 字段即「上次整理时间」 */
+export const MAINTENANCE_MARKER_ID = "dynamic-memory-maintenance";

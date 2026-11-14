@@ -4,6 +4,7 @@ import { parseFrontmatter, serializeFrontmatter } from "./frontmatter.js";
 import type { Frontmatter } from "./frontmatter.js";
 import type { MemoryFile, MemoryInput, MemoryType } from "./types.js";
 import {
+  MAINTENANCE_MARKER_ID,
   MAX_DESCRIPTION_CHARS,
   MAX_FILE_CHARS,
   MAX_FILE_LINES,
@@ -16,6 +17,7 @@ import {
 } from "./types.js";
 
 const INDEX_FILENAME = "MEMORY.md";
+const MARKER_FILENAME = `${MAINTENANCE_MARKER_ID}.md`;
 
 const INJECTION_HEAD =
   "## Project Memory\n\n" +
@@ -30,6 +32,12 @@ function stripTypePrefix(slug: string): string {
     if (slug.startsWith(`${t}-`)) return slug.slice(t.length + 1);
   }
   return slug;
+}
+
+/** 归一化 id：容忍传入 filename（结尾 .md），剥掉后校验；非法返回空串 */
+function normalizeMemoryId(id: string): string {
+  const trimmed = id.trim().replace(/\.md$/, "");
+  return MEMORY_NAME_RE.test(trimmed) ? trimmed : "";
 }
 
 /**
@@ -62,35 +70,64 @@ export class MemoryStore {
     return this.dir;
   }
 
-  loadAll(): MemoryFile[] {
+  /** 带文件名的全量读取（lint 检测 frontmatter name ≠ 文件名用）；排除索引与整理标记 */
+  listEntries(): { filename: string; memory: MemoryFile }[] {
     try {
       const files = readdirSync(this.dir)
-        .filter((f) => f.endsWith(".md") && f !== INDEX_FILENAME)
+        .filter((f) => f.endsWith(".md") && f !== INDEX_FILENAME && f !== MARKER_FILENAME)
         .sort();
-      const memories: MemoryFile[] = [];
+      const entries: { filename: string; memory: MemoryFile }[] = [];
       for (const f of files) {
         try {
           const raw = readFileSync(resolve(this.dir, f), "utf-8");
-          memories.push(this.parseFile(f, raw));
+          entries.push({ filename: f, memory: this.parseFile(f, raw) });
         } catch {
           // 单个文件损坏则跳过
         }
       }
-      return memories;
+      return entries;
     } catch {
       return [];
     }
   }
 
-  /** 按完整 id 读取单条记忆；不存在（或 id 非法）返回 null */
+  loadAll(): MemoryFile[] {
+    return this.listEntries().map((e) => e.memory);
+  }
+
+  /** 按完整 id 或 filename 读取单条记忆并记 lastRead；不存在（或 id 非法）返回 null */
   read(id: string): MemoryFile | null {
-    if (!MEMORY_NAME_RE.test(id)) return null;
+    const normalized = normalizeMemoryId(id);
+    if (!normalized) return null;
+    let memory: MemoryFile;
     try {
-      const raw = readFileSync(this.filePath(id), "utf-8");
-      return this.parseFile(`${id}.md`, raw);
+      const raw = readFileSync(this.filePath(normalized), "utf-8");
+      memory = this.parseFile(`${normalized}.md`, raw);
     } catch {
       return null;
     }
+    const lastRead = this.touchLastRead(normalized, memory);
+    return { ...memory, lastRead };
+  }
+
+  /** 记录 lastRead：整文件重写（与 upsert 一致地重建 frontmatter）；写失败静默，返回值不受影响 */
+  private touchLastRead(id: string, memory: MemoryFile): string {
+    const lastRead = new Date().toISOString();
+    const fm: Frontmatter = {
+      name: memory.id,
+      type: memory.type,
+      description: memory.description,
+      updated: memory.updated,
+      lastRead,
+    };
+    try {
+      const body = this.truncateBody(fm, memory.body);
+      this.ensureDir();
+      writeFileSync(this.filePath(id), serializeFrontmatter(fm) + body + "\n", "utf-8");
+    } catch {
+      // 记录失败不影响读取
+    }
+    return lastRead;
   }
 
   /** 容错解析：type 取 frontmatter，非法时按文件名前缀识别，仍不识别则降级 dynamic */
@@ -101,12 +138,16 @@ export class MemoryStore {
     const id = (fm.name || filename.replace(/\.md$/, "")).slice(0, MAX_NAME_CHARS);
     const type = this.resolveType(fm.type, id);
     const description = fm.description ?? "";
+    const lastRead = fm.lastRead || undefined;
+    const fmOut: Frontmatter = { name: id, type, description, updated: fm.updated ?? "" };
+    if (lastRead) fmOut.lastRead = lastRead;
     return {
       id,
       type,
       description,
       updated: fm.updated ?? "",
-      body: this.truncateBody({ name: id, type, description, updated: fm.updated ?? "" }, trimmed),
+      ...(lastRead ? { lastRead } : {}),
+      body: this.truncateBody(fmOut, trimmed),
     };
   }
 
@@ -143,38 +184,52 @@ export class MemoryStore {
       throw new Error("Memory body is required");
     }
 
+    // isNew 按文件名判定（existsSync）：保留标记等 loadAll 之外的覆盖保存不误判为新增
+    const isNew = !existsSync(this.filePath(id));
     const existing = this.loadAll();
-    const isNew = !existing.some((m) => m.id === id);
-    if (isNew && existing.length >= MAX_MEMORY_FILES) {
+    // 整理标记是隐形簿记（不进索引/列表），不占用户可见的文件数名额
+    if (isNew && id !== MAINTENANCE_MARKER_ID && existing.length >= MAX_MEMORY_FILES) {
       throw new Error(
         `Memory limit reached (${MAX_MEMORY_FILES} files). Delete one first. Existing: ${existing.map((m) => m.id).join(", ")}`,
       );
     }
 
     const updated = new Date().toISOString();
+    const prev = existing.find((m) => m.id === id);
     const fm: Frontmatter = { name: id, type: input.type, description: input.description, updated };
+    // 覆盖保存携带旧 lastRead（save 是写不是读；过期基准 max(lastRead, updated) 已由 updated 刷新）
+    if (prev?.lastRead) fm.lastRead = prev.lastRead;
     const body = this.truncateBody(fm, input.body);
 
     this.ensureDir();
     writeFileSync(this.filePath(id), serializeFrontmatter(fm) + body + "\n", "utf-8");
     this.writeIndex();
-    return { id, type: input.type, description: input.description, updated, body };
+    return {
+      id,
+      type: input.type,
+      description: input.description,
+      updated,
+      body,
+      ...(prev?.lastRead ? { lastRead: prev.lastRead } : {}),
+    };
   }
 
   /** 删除一条记忆并更新索引；不存在（或 id 非法）返回 false */
   delete(id: string): boolean {
-    if (!MEMORY_NAME_RE.test(id)) return false;
-    const path = this.filePath(id);
+    const normalized = normalizeMemoryId(id);
+    if (!normalized) return false;
+    const path = this.filePath(normalized);
     if (!existsSync(path)) return false;
     rmSync(path);
     this.writeIndex();
     return true;
   }
 
-  /** 清空全部记忆文件（保留目录与索引），返回删除数 */
+  /** 清空全部记忆文件（保留目录、索引与整理标记），返回删除数 */
   clear(): number {
     try {
-      const files = readdirSync(this.dir).filter((f) => f.endsWith(".md") && f !== INDEX_FILENAME);
+      const files = readdirSync(this.dir)
+        .filter((f) => f.endsWith(".md") && f !== INDEX_FILENAME && f !== MARKER_FILENAME);
       for (const f of files) {
         rmSync(resolve(this.dir, f));
       }

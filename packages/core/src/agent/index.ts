@@ -20,6 +20,7 @@ import { SessionStore, type SessionData } from "../session/index.js";
 import { createSystemPromptBuilder } from "../prompt/index.js";
 import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS, compressMessages } from "../context/index.js";
 import { createDefaultCommandDispatcher } from "../commands/index.js";
+import { shouldRunMaintenance } from "../memory/maintenance.js";
 
 // Debug logger — writes to .kda/logs/debug.log in cwd
 function createLogger(cwd: string) {
@@ -111,6 +112,12 @@ export function runAgent(
   // Session context for prompt (set when session is restored)
   let sessionCtx: { summary: string; messageCount: number } | undefined;
 
+  // Session store for persistence
+  const sessionStore = new SessionStore(options.cwd);
+
+  // 记忆维护触发判定：整个 runAgent 只算一次（SessionStore.list() 全量读盘，绝不进每轮 prompt 渲染）
+  const memoryMaintenanceDue = shouldRunMaintenance(options.cwd, sessionStore.list());
+
   // Run one round of tool-calling loop until the model stops calling tools
   const runToolLoop = (
     messages: ModelMessage[],
@@ -158,7 +165,12 @@ export function runAgent(
         }
 
         // Log request: what we send to the model
-        const promptBuilder = createSystemPromptBuilder({ cwd: options.cwd, registry, session: sessionCtx });
+        const promptBuilder = createSystemPromptBuilder({
+          cwd: options.cwd,
+          registry,
+          session: sessionCtx,
+          memoryMaintenanceDue,
+        });
         const systemPrompt = promptBuilder.build();
         log.log(`[prompt-segments]`, promptBuilder.debug());
 
@@ -419,9 +431,6 @@ export function runAgent(
       return state.messages;
     });
   };
-
-  // Session store for persistence
-  const sessionStore = new SessionStore(options.cwd);
 
   // Slash command dispatcher ("/" 前缀输入在此拦截，不进 LLM)
   const dispatcher = createDefaultCommandDispatcher({ cwd: options.cwd });

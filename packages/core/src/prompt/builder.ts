@@ -7,6 +7,8 @@ export interface PromptContext {
     summary: string;
     messageCount: number;
   };
+  /** 会话启动时一次性预计算：记忆维护周期是否到期（SessionStore.list() 全量读盘，只做一次） */
+  memoryMaintenanceDue?: boolean;
 }
 
 export type PromptSegment = string | ((ctx: PromptContext) => string);

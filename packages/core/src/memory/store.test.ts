@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, mkdirSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemoryStore } from "./store.js";
-import { MAX_MEMORY_FILES, MAX_FILE_LINES, MAX_FILE_CHARS } from "./types.js";
+import { MAX_MEMORY_FILES, MAX_FILE_LINES, MAX_FILE_CHARS, MAINTENANCE_MARKER_ID } from "./types.js";
 
 // --- Helpers ---
 
@@ -180,5 +180,104 @@ describe("MemoryStore.buildInjectionText", () => {
     expect(text).toContain("Memories are clues, not facts");
     // 正文绝不进入注入
     expect(text).not.toContain("Run `pnpm -r build`.");
+  });
+});
+
+describe("MemoryStore.read lastRead tracking", () => {
+  it("records lastRead on explicit read and keeps the original content", () => {
+    const store = makeStore();
+    store.upsert(makeMemory());
+    const m = store.read("feedback-test-mem");
+    expect(m?.lastRead).toBeTruthy();
+    const raw = readFileSync(join(dir, ".kda", "memory", "feedback-test-mem.md"), "utf-8");
+    expect(raw).toContain("lastRead:");
+    expect(raw).toContain("name: feedback-test-mem");
+    expect(raw).toContain("Some details.");
+    expect(store.loadAll()[0].lastRead).toBeTruthy();
+  });
+
+  it("advances lastRead on repeated reads", async () => {
+    const store = makeStore();
+    store.upsert(makeMemory());
+    const first = store.read("feedback-test-mem")!.lastRead!;
+    await new Promise((r) => setTimeout(r, 10));
+    const second = store.read("feedback-test-mem")!.lastRead!;
+    expect(second > first).toBe(true);
+  });
+
+  it("accepts a filename (trailing .md) in read and delete", () => {
+    const store = makeStore();
+    store.upsert(makeMemory());
+    expect(store.read("feedback-test-mem.md")?.id).toBe("feedback-test-mem");
+    expect(store.delete("feedback-test-mem.md")).toBe(true);
+    expect(existsSync(join(dir, ".kda", "memory", "feedback-test-mem.md"))).toBe(false);
+  });
+
+  it("loadAll and injection never write lastRead", () => {
+    const store = makeStore();
+    store.upsert(makeMemory());
+    const before = readFileSync(join(dir, ".kda", "memory", "feedback-test-mem.md"), "utf-8");
+    store.loadAll();
+    store.buildInjectionText();
+    const after = readFileSync(join(dir, ".kda", "memory", "feedback-test-mem.md"), "utf-8");
+    expect(after).toBe(before);
+  });
+});
+
+describe("MemoryStore.upsert lastRead carry-over", () => {
+  it("carries lastRead over on overwrite; brand-new ids have none", () => {
+    const store = makeStore();
+    store.upsert(makeMemory());
+    const readAt = store.read("feedback-test-mem")!.lastRead!;
+    const saved = store.upsert(makeMemory({ body: "Updated." }));
+    expect(saved.lastRead).toBe(readAt);
+    const raw = readFileSync(join(dir, ".kda", "memory", "feedback-test-mem.md"), "utf-8");
+    expect(raw).toContain(`lastRead: ${readAt}`);
+
+    store.upsert(makeMemory({ slug: "fresh" }));
+    expect(readFileSync(join(dir, ".kda", "memory", "feedback-fresh.md"), "utf-8")).not.toContain("lastRead:");
+  });
+});
+
+describe("MemoryStore maintenance marker & listEntries", () => {
+  it("excludes the maintenance marker from loadAll, index and clear", () => {
+    const store = makeStore();
+    store.init();
+    const memDir = join(dir, ".kda", "memory");
+    writeFileSync(
+      join(memDir, `${MAINTENANCE_MARKER_ID}.md`),
+      `---\nname: ${MAINTENANCE_MARKER_ID}\ntype: dynamic\ndescription: marker\nupdated: 2026-11-01T00:00:00.000Z\n---\nreport\n`,
+      "utf-8",
+    );
+    store.upsert(makeMemory());
+    expect(store.loadAll().map((m) => m.id)).toEqual(["feedback-test-mem"]);
+    expect(readFileSync(join(memDir, "MEMORY.md"), "utf-8")).not.toContain("memory-maintenance");
+    expect(store.clear()).toBe(1);
+    expect(existsSync(join(memDir, `${MAINTENANCE_MARKER_ID}.md`))).toBe(true);
+  });
+
+  it("allows overwriting the marker at the file cap (filename-based isNew)", () => {
+    const store = makeStore();
+    for (let i = 0; i < MAX_MEMORY_FILES; i++) {
+      store.upsert(makeMemory({ slug: `mem-${i}` }));
+    }
+    expect(() =>
+      store.upsert({ type: "dynamic", slug: "memory-maintenance", description: "pass", body: "report" }),
+    ).not.toThrow();
+    expect(store.loadAll()).toHaveLength(MAX_MEMORY_FILES);
+  });
+
+  it("listEntries exposes filenames for name-mismatch detection", () => {
+    const store = makeStore();
+    const memDir = join(dir, ".kda", "memory");
+    mkdirSync(memDir, { recursive: true });
+    writeFileSync(
+      join(memDir, "user-foo.md"),
+      "---\nname: user-bar\ntype: user\ndescription: d\nupdated: 2026-11-01T00:00:00.000Z\n---\nbody\n",
+      "utf-8",
+    );
+    const entries = store.listEntries();
+    expect(entries[0].filename).toBe("user-foo.md");
+    expect(entries[0].memory.id).toBe("user-bar");
   });
 });
