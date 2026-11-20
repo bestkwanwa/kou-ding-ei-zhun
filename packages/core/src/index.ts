@@ -19,6 +19,9 @@ export type { MemoryFile, MemoryInput, MemoryType } from "./memory/index.js";
 export { SkillManager } from "./skills/index.js";
 export type { SkillFile } from "./skills/index.js";
 
+export { PluginManager, parsePluginEnv } from "./plugins/index.js";
+export type { PluginContext, PluginDefinition, PluginInfo, PluginStatus, PluginToolSpec } from "./plugins/index.js";
+
 export { RagStore, createRagService, createEmbedder, fuseResults } from "./rag/index.js";
 export type { RagService, Embedder, RagDoc, RagChunk, RetrievedChunk, IngestSummary } from "./rag/index.js";
 

@@ -16,6 +16,7 @@ import { LoopDetector, type LoopDetectorConfig } from "./loop-detector.js";
 import { TokenBudgetDetector, type TokenBudgetConfig } from "./token-budget.js";
 import { SessionStore, type SessionData } from "../session/index.js";
 import { SkillManager } from "../skills/index.js";
+import type { PluginManager } from "../plugins/index.js";
 import { createSystemPromptBuilder } from "../prompt/index.js";
 import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS, compressMessages } from "../context/index.js";
 import { createDefaultCommandDispatcher } from "../commands/index.js";
@@ -30,6 +31,8 @@ export interface AgentOptions {
   tokenBudget?: Partial<TokenBudgetConfig>;
   session?: SessionData;
   keepToolResultRounds?: number;
+  /** Plugin 管理器（/plugin 命令依赖；由 CLI 层加载完成后再传入） */
+  plugins?: PluginManager;
 }
 
 export class AgentError {
@@ -425,7 +428,7 @@ export function runAgent(
   };
 
   // Slash command dispatcher ("/" 前缀输入在此拦截，不进 LLM；/<skill-name> 快捷执行返回转发文本)
-  const dispatcher = createDefaultCommandDispatcher({ cwd: options.cwd, skills });
+  const dispatcher = createDefaultCommandDispatcher({ cwd: options.cwd, skills, plugins: options.plugins });
 
   // Main conversation loop: tool loop → read input → repeat
   return Effect.gen(function* () {

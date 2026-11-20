@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import { Effect } from "effect";
 import * as readline from "node:readline";
-import { runAgent, createDefaultRegistry, ToolRegistry, createModelFactory, AgentError, SessionStore, MemoryStore, SkillManager, version, DEFAULT_COMMANDS } from "@kda/core";
+import { runAgent, createDefaultRegistry, ToolRegistry, createModelFactory, AgentError, SessionStore, MemoryStore, SkillManager, PluginManager, version, DEFAULT_COMMANDS } from "@kda/core";
 import type { AppConfig, SessionData } from "@kda/core";
 
 export interface RunOptions {
@@ -108,12 +108,25 @@ export async function runAgentCli(
   const factory = createModelFactory(config);
   const model = factory(config.model);
 
+  // Plugin 加载必须先于 runAgent：toolDefs 在 agent 启动时快照，晚注册的工具 LLM 不可见
+  const plugins = new PluginManager(config.cwd);
+  if (opts.toolsEnabled) {
+    await plugins.loadAll(registry);
+    const loaded = plugins.list().filter((p) => p.status === "enabled").length;
+    if (loaded > 0) {
+      console.log(chalk.bold.cyan(`  plugins`) + chalk.gray(`  ${loaded} loaded (use /plugin)`));
+    }
+  }
+
   const program = runAgent(model, registry, prompt, {
     cwd: config.cwd,
     verbose: opts.verbose,
     session,
+    plugins,
   });
 
+  // dispose 只能走 finally：process.exit 会跳过它（Ctrl+C 被 readline raw mode 吞掉，无 SIGINT 可挂）
+  let exitCode = 0;
   try {
     await Effect.runPromise(program);
   } catch (err) {
@@ -124,6 +137,9 @@ export async function runAgentCli(
     } else {
       console.error(chalk.red("An unknown error occurred"));
     }
-    process.exit(1);
+    exitCode = 1;
+  } finally {
+    await plugins.disposeAll();
   }
+  if (exitCode !== 0) process.exit(exitCode);
 }
