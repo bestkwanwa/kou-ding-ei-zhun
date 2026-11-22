@@ -7,3 +7,4 @@ dist/
 coverage/
 CLAUDE.local.md
 .docs
+.kda/

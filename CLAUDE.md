@@ -1,1 +1,2 @@
 - Vercel AI SDK不参与Agent Loop。
+- Effect 只用于 agent 主循环编排；周边子系统用普通 TS class，不随单个 feature 引入 Service/Layer/Scope。

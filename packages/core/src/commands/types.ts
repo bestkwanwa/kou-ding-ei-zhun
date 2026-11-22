@@ -1,5 +1,6 @@
 import type { SkillManager } from "../skills/index.js";
 import type { PluginManager } from "../plugins/index.js";
+import type { ChannelGateway } from "../channels/index.js";
 
 export interface CommandContext {
   cwd: string;
@@ -7,6 +8,8 @@ export interface CommandContext {
   skills?: SkillManager;
   /** Plugin 管理器（/plugin 命令依赖；测试等场景可省略） */
   plugins?: PluginManager;
+  /** Channel 网关（/channel 命令依赖；测试等场景可省略） */
+  channels?: ChannelGateway;
 }
 
 export interface Command {

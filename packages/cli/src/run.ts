@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import { Effect } from "effect";
 import * as readline from "node:readline";
-import { runAgent, createDefaultRegistry, ToolRegistry, createModelFactory, AgentError, SessionStore, MemoryStore, SkillManager, PluginManager, version, DEFAULT_COMMANDS } from "@kda/core";
+import { runAgent, createDefaultRegistry, ToolRegistry, createModelFactory, AgentError, SessionStore, MemoryStore, SkillManager, PluginManager, createDefaultChannelGateway, version, DEFAULT_COMMANDS } from "@kda/core";
 import type { AppConfig, SessionData } from "@kda/core";
 
 export interface RunOptions {
@@ -118,11 +118,15 @@ export async function runAgentCli(
     }
   }
 
+  // Channel gateway 必须先于 runAgent 创建：agent 循环的输入多路复用器启动时即接入 gateway 入站队列
+  const channels = createDefaultChannelGateway(config.cwd);
+
   const program = runAgent(model, registry, prompt, {
     cwd: config.cwd,
     verbose: opts.verbose,
     session,
     plugins,
+    channels,
   });
 
   // dispose 只能走 finally：process.exit 会跳过它（Ctrl+C 被 readline raw mode 吞掉，无 SIGINT 可挂）
@@ -139,6 +143,8 @@ export async function runAgentCli(
     }
     exitCode = 1;
   } finally {
+    // 先关 channel：open http server 会挂住事件循环，不关进程退不出去
+    await channels.stopAll();
     await plugins.disposeAll();
   }
   if (exitCode !== 0) process.exit(exitCode);

@@ -157,3 +157,58 @@ describe("default commands", () => {
     expect(dispatcher.listCommands().map((c) => c.name)).toEqual(DEFAULT_COMMANDS.map((c) => c.name));
   });
 });
+
+describe("dispatch (pure, for channel-originated input)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns not-command for plain text", () => {
+    const dispatcher = new CommandDispatcher({ cwd: "/tmp" });
+    expect(dispatcher.dispatch("hello")).toEqual({ kind: "not-command" });
+  });
+
+  it("returns handled with output and prints nothing", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const dispatcher = new CommandDispatcher({ cwd: "/tmp" });
+    dispatcher.register(makeCommand({ name: "fake", execute: () => "ran" }));
+
+    expect(dispatcher.dispatch("/fake arg")).toEqual({ kind: "handled", output: "ran" });
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("returns handled with empty output for silent success", () => {
+    const dispatcher = new CommandDispatcher({ cwd: "/tmp" });
+    dispatcher.register(makeCommand({ name: "quiet", execute: () => "" }));
+    expect(dispatcher.dispatch("/quiet")).toEqual({ kind: "handled", output: "" });
+  });
+
+  it("returns forward (text + notice) for skill shortcuts", () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const dir = mkdtempSync(join(tmpdir(), "kda-skill-dispatch2-"));
+    const base = join(dir, ".kda", "skills");
+    mkdirSync(join(base, "deploy"), { recursive: true });
+    writeFileSync(join(base, "deploy", "SKILL.md"), "---\ndescription: Deploy\n---\nbody\n", "utf-8");
+    const dispatcher = new CommandDispatcher({ cwd: dir, skills: new SkillManager(dir) });
+
+    const result = dispatcher.dispatch("/deploy --prod");
+    expect(result).toMatchObject({ kind: "forward" });
+    if (result.kind === "forward") {
+      expect(result.text).toContain("Execute the skill \"deploy\" now");
+      expect(result.notice).toBe('Skill "deploy" activated.');
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns handled with unknown-command output (no throw, no print)", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const dispatcher = new CommandDispatcher({ cwd: "/tmp" });
+
+    const result = dispatcher.dispatch("/nope");
+    expect(result.kind).toBe("handled");
+    if (result.kind === "handled") {
+      expect(result.output).toContain("Unknown command: /nope");
+    }
+    expect(log).not.toHaveBeenCalled();
+  });
+});

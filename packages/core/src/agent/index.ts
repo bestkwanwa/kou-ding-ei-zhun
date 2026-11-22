@@ -1,6 +1,5 @@
 import { Effect, Console } from "effect";
 import chalk from "chalk";
-import * as readline from "node:readline";
 import {
   streamText,
   type ToolSet,
@@ -22,6 +21,9 @@ import { cleanupToolResults, DEFAULT_KEEP_TOOL_RESULT_ROUNDS, compressMessages }
 import { createDefaultCommandDispatcher } from "../commands/index.js";
 import { shouldRunMaintenance } from "../memory/maintenance.js";
 import { createLogger } from "../utils/logger.js";
+import type { ChannelGateway, InboundMessage } from "../channels/index.js";
+import { createAgentInput } from "./input.js";
+import { extractReply } from "./reply.js";
 
 export interface AgentOptions {
   cwd: string;
@@ -33,6 +35,8 @@ export interface AgentOptions {
   keepToolResultRounds?: number;
   /** Plugin 管理器（/plugin 命令依赖；由 CLI 层加载完成后再传入） */
   plugins?: PluginManager;
+  /** Channel 网关（/channel 命令与渠道消息处理依赖；由 CLI 层创建后传入，退出时 finally stopAll） */
+  channels?: ChannelGateway;
 }
 
 export class AgentError {
@@ -47,29 +51,6 @@ interface LoopState {
   messages: ModelMessage[];
   iteration: number;
   done: boolean;
-}
-
-function createUserInput(): {
-  read: (prompt: string) => Effect.Effect<string, AgentError>;
-  close: () => void;
-} {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  return {
-    read(prompt: string) {
-      return Effect.async((resume) => {
-        rl.question(prompt, (answer) => {
-          resume(Effect.succeed(answer));
-        });
-      });
-    },
-    close() {
-      rl.close();
-    },
-  };
 }
 
 export function runAgent(
@@ -428,12 +409,13 @@ export function runAgent(
   };
 
   // Slash command dispatcher ("/" 前缀输入在此拦截，不进 LLM；/<skill-name> 快捷执行返回转发文本)
-  const dispatcher = createDefaultCommandDispatcher({ cwd: options.cwd, skills, plugins: options.plugins });
+  const dispatcher = createDefaultCommandDispatcher({ cwd: options.cwd, skills, plugins: options.plugins, channels: options.channels });
 
   // Main conversation loop: tool loop → read input → repeat
   return Effect.gen(function* () {
     log.clear();
-    const userInput = createUserInput();
+    // 统一输入源：终端行与渠道消息进同一 FIFO，单消费者串行处理（见 input.ts）
+    const input = createAgentInput(options.channels);
 
     // Initialize session state
     let sessionId: string;
@@ -493,29 +475,64 @@ export function runAgent(
       log.log(`[conv] no initial prompt, entering interactive mode`);
     }
 
-    // Continuous conversation
+    // 渠道回复：唯一出站路径经 gateway.reply → channel.send；gateway 隔离错误，永不 reject
+    const gateway = options.channels;
+    const sendToChannel = (text: string, msg: InboundMessage) =>
+      Effect.promise(() => gateway!.reply(text, msg));
+
+    // Continuous conversation: terminal lines and channel messages share one FIFO
     while (true) {
       console.log(""); // blank line
-      const input = yield* userInput.read(chalk.cyan("> "));
-      const trimmed = input.trim();
+      input.prompt();
+      const event = yield* Effect.tryPromise({
+        try: () => input.next(),
+        catch: (e) => new AgentError("Failed to read input", e),
+      });
 
-      if (!trimmed) {
-        yield* Console.log(chalk.gray("Bye!"));
-        userInput.close();
-        return;
+      let llmInput: string;
+      // 本轮的"待回信"：终端轮次为 undefined（回复已流式进终端）；渠道轮次 = 触发本轮的入站消息对象，
+      // LLM 期间攥着它，轮次结束时照它回信（channel 名路由回去、id 供页面对应气泡）
+      let replyTo: InboundMessage | undefined;
+
+      if (event.type === "terminal") {
+        const trimmed = event.line.trim();
+
+        if (!trimmed) {
+          yield* Console.log(chalk.gray("Bye!"));
+          input.close();
+          return;
+        }
+
+        // 斜杠命令：handled = 已处理跳过本轮；forward = 命令产生的 LLM 转发输入（/<skill-name> 快捷执行）
+        const loadedSnapshot = skills.getLoadedSkills().join("\n");
+        const result = dispatcher.dispatch(trimmed);
+        if (result.kind === "handled") {
+          if (result.output) console.log(result.output);
+          // /skill load|unload 改变了激活集 → 立即持久化（命令本身不触发 saveSession）
+          if (skills.getLoadedSkills().join("\n") !== loadedSnapshot) saveSession();
+          continue;
+        }
+        llmInput = result.kind === "forward" ? result.text : trimmed;
+      } else {
+        // 渠道轮次：与终端同一套分发语义（对称）；命令输出回发渠道
+        replyTo = event.message;
+        process.stderr.write(chalk.magenta(`[channel:${replyTo.channel}] ${chalk.bold(replyTo.sender)}: ${replyTo.text}\n`));
+        const result = dispatcher.dispatch(replyTo.text);
+        if (result.kind === "handled") {
+          // 命令输出即最终回信，当场结清：continue 跳过 LLM 轮与末尾的统一回信
+          if (result.output) {
+            console.log(chalk.gray(result.output));
+            yield* sendToChannel(result.output, replyTo);
+          }
+          continue; // "" = 静默成功，不回发
+        }
+        // forward 当场只发回执（"Skill activated."）；skill 执行结果由本轮 LLM 产出，末尾统一回信
+        if (result.kind === "forward") yield* sendToChannel(result.notice, replyTo);
+        llmInput = result.kind === "forward" ? result.text : replyTo.text;
       }
 
-      // 斜杠命令：true = 已处理跳过本轮；string = 命令产生的 LLM 转发输入（/<skill-name> 快捷执行）
-      const loadedSnapshot = skills.getLoadedSkills().join("\n");
-      const handled = dispatcher.handle(trimmed);
-      if (handled === true) {
-        // /skill load|unload 改变了激活集 → 立即持久化（命令本身不触发 saveSession）
-        if (skills.getLoadedSkills().join("\n") !== loadedSnapshot) saveSession();
-        continue;
-      }
-      const llmInput = handled === false ? trimmed : handled;
-
-      log.log(`[conv] user input:`, llmInput);
+      const prevLen = history.length;
+      log.log(`[conv] ${replyTo ? `channel:${replyTo.channel} input` : "user input"}:`, llmInput);
       log.log(`[conv] passing history=${history.length} messages`);
       history = yield* runToolLoop([
         ...history,
@@ -523,6 +540,13 @@ export function runAgent(
       ]);
       log.log(`[conv] turn done, history=${history.length} messages`);
       saveSession();
+
+      // 统一回信：凡进了 LLM 的渠道轮次（not-command / forward），最终回复都在此发出。
+      // extractReply 以 prevLen 为下界只取本轮新增的 assistant 文本——早停轮次（预算耗尽/循环检测）
+      // 本轮无产出时不越过下界捞旧轮回复重发
+      if (replyTo) {
+        yield* sendToChannel(extractReply(prevLen, history), replyTo);
+      }
     }
   });
 }
