@@ -10,8 +10,10 @@ Actions:
   stop <name>     Stop a running channel
   help            Show usage
 
-The "web" channel serves a local chat page to talk to the running agent
-from a browser (binds 127.0.0.1; port via KDA_CHANNEL_PORT env, default 8787).
+Channels:
+  web     Local chat page in a browser (127.0.0.1, port via KDA_CHANNEL_PORT, default 8787)
+  feishu  Feishu bot via long connection (KDA_FEISHU_APP_ID / KDA_FEISHU_APP_SECRET in .env;
+          optional KDA_FEISHU_CHAT_ID whitelist — see docs/feishu-channel.md)
 Channel messages are handled by the same agent session, serially with the terminal.`;
 
 function statusMarker(c: ChannelInfo): string {
@@ -60,9 +62,11 @@ export const channelCommand: Command = {
         const target = name || "web";
         const err = gateway.start(target);
         if (err) return err;
+        const st = gateway.list().find((c) => c.name === target);
+        // 同步配置错误（如 feishu 缺 env）立即呈现，不被乐观提示掩盖
+        if (st?.status === "error") return `Channel "${target}" failed: ${st.detail ?? "unknown error"}`;
         // 乐观提示：实际监听结果异步落 status（失败会终端 warn，且 list 显示 [error]）
-        const detail = gateway.list().find((c) => c.name === target)?.detail;
-        return `Channel "${target}" starting → ${detail ?? "(see /channel list)"}`;
+        return `Channel "${target}" starting → ${st?.detail ?? "(see /channel list)"}`;
       }
 
       case "stop": {

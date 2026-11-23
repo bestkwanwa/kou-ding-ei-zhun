@@ -22,8 +22,8 @@ export type { SkillFile } from "./skills/index.js";
 export { PluginManager, parsePluginEnv } from "./plugins/index.js";
 export type { PluginContext, PluginDefinition, PluginInfo, PluginStatus, PluginToolSpec } from "./plugins/index.js";
 
-export { ChannelGateway, createDefaultChannelGateway, createWebChannel, DEFAULT_WEB_CHANNEL_PORT } from "./channels/index.js";
-export type { Channel, ChannelInfo, ChannelStatus, InboundMessage, OutboundMessage, WebChannelOptions } from "./channels/index.js";
+export { ChannelGateway, createDefaultChannelGateway, createWebChannel, createFeishuChannel, DEFAULT_WEB_CHANNEL_PORT } from "./channels/index.js";
+export type { Channel, ChannelInfo, ChannelStatus, InboundMessage, OutboundMessage, WebChannelOptions, FeishuChannelOptions } from "./channels/index.js";
 
 export { RagStore, createRagService, createEmbedder, fuseResults } from "./rag/index.js";
 export type { RagService, Embedder, RagDoc, RagChunk, RetrievedChunk, IngestSummary } from "./rag/index.js";
