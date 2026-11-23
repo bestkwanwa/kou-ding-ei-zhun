@@ -17,10 +17,11 @@ export interface ConfigOverrides {
   cwd?: string;
 }
 
+// 每家兜底默认模型（仅当 DEFAULT_MODEL / -m 均未设置时使用；推荐 id 见 .env.example 注释）
 const PROVIDER_DEFAULTS: Record<ProviderName, { model: string; envKey: string; baseEnvKey: string }> = {
   zhipu: { model: "glm-5.1", envKey: "ZHIPU_API_KEY", baseEnvKey: "ZHIPU_BASE_URL" },
-  openai: { model: "gpt-4o", envKey: "OPENAI_API_KEY", baseEnvKey: "OPENAI_BASE_URL" },
-  anthropic: { model: "claude-sonnet-4-20250514", envKey: "ANTHROPIC_API_KEY", baseEnvKey: "ANTHROPIC_BASE_URL" },
+  openai: { model: "gpt-5.1", envKey: "OPENAI_API_KEY", baseEnvKey: "OPENAI_BASE_URL" },
+  anthropic: { model: "claude-sonnet-4-5", envKey: "ANTHROPIC_API_KEY", baseEnvKey: "ANTHROPIC_BASE_URL" },
 };
 
 function resolveProvider(name: string): ProviderName {

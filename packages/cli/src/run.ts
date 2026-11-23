@@ -106,7 +106,6 @@ export async function runAgentCli(
 
   const registry = opts.toolsEnabled ? createDefaultRegistry(config.cwd) : new ToolRegistry();
   const factory = createModelFactory(config);
-  const model = factory(config.model);
 
   // Plugin 加载必须先于 runAgent：toolDefs 在 agent 启动时快照，晚注册的工具 LLM 不可见
   const plugins = new PluginManager(config.cwd);
@@ -121,9 +120,11 @@ export async function runAgentCli(
   // Channel gateway 必须先于 runAgent 创建：agent 循环的输入多路复用器启动时即接入 gateway 入站队列
   const channels = createDefaultChannelGateway(config.cwd);
 
-  const program = runAgent(model, registry, prompt, {
+  const program = runAgent(factory, registry, prompt, {
     cwd: config.cwd,
     verbose: opts.verbose,
+    model: config.model,
+    provider: config.provider,
     session,
     plugins,
     channels,

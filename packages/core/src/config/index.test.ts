@@ -37,7 +37,7 @@ describe("loadConfig provider resolution", () => {
     const config = loadConfig();
     expect(config.provider).toBe("anthropic");
     expect(config.apiKey).toBe("anthropic-key");
-    expect(config.model).toBe("claude-sonnet-4-20250514"); // 供应商默认模型
+    expect(config.model).toBe("claude-sonnet-4-5"); // 供应商默认模型
   });
 
   it("detection order follows PROVIDER_DEFAULTS declaration (zhipu first)", () => {
@@ -74,5 +74,22 @@ describe("loadConfig provider resolution", () => {
     vi.stubEnv("ZHIPU_API_KEY", "k");
     vi.stubEnv("ZHIPU_BASE_URL", "https://example.test/v4");
     expect(loadConfig().baseUrl).toBe("https://example.test/v4");
+  });
+
+  it("falls back to the per-provider default model when DEFAULT_MODEL is unset", () => {
+    clearProviderEnv();
+    vi.stubEnv("ZHIPU_API_KEY", "k");
+    const config = loadConfig();
+    expect(config.model).toBe("glm-5.1");
+
+    vi.stubEnv("DEFAULT_MODEL", "glm-4.7");
+    expect(loadConfig().model).toBe("glm-4.7");
+  });
+
+  it("cli model override beats DEFAULT_MODEL env", () => {
+    clearProviderEnv();
+    vi.stubEnv("ZHIPU_API_KEY", "k");
+    vi.stubEnv("DEFAULT_MODEL", "env-model");
+    expect(loadConfig({ model: "flag-model" }).model).toBe("flag-model");
   });
 });

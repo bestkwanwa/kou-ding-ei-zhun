@@ -2,6 +2,14 @@ import type { SkillManager } from "../skills/index.js";
 import type { PluginManager } from "../plugins/index.js";
 import type { ChannelGateway } from "../channels/index.js";
 
+/** /model 命令的运行时切换句柄（agent 主循环构造注入） */
+export interface ModelSwitcher {
+  /** 展示用供应商名 */
+  provider: string;
+  get(): string;
+  set(id: string): void;
+}
+
 export interface CommandContext {
   cwd: string;
   /** 技能管理器（/skill 命令与 /<skill-name> 快捷执行依赖；测试等场景可省略） */
@@ -10,6 +18,8 @@ export interface CommandContext {
   plugins?: PluginManager;
   /** Channel 网关（/channel 命令依赖；测试等场景可省略） */
   channels?: ChannelGateway;
+  /** 模型切换句柄（/model 命令依赖；测试等场景可省略） */
+  model?: ModelSwitcher;
 }
 
 export interface Command {

@@ -7,7 +7,7 @@ import {
   type ToolCallPart,
   type ToolResultPart,
 } from "ai";
-import type { LanguageModelV3 } from "@ai-sdk/provider";
+import type { ModelFactory } from "../llm/index.js";
 import type { ToolContext } from "../tools/types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import { withRetry } from "../llm/retry.js";
@@ -28,6 +28,10 @@ import { extractReply } from "./reply.js";
 export interface AgentOptions {
   cwd: string;
   verbose: boolean;
+  /** 初始模型 id（每轮经 modelFactory 解析；/model 命令可运行中切换） */
+  model: string;
+  /** 展示用供应商名（banner / /model 输出） */
+  provider?: string;
   maxIterations?: number;
   loopDetector?: Partial<LoopDetectorConfig>;
   tokenBudget?: Partial<TokenBudgetConfig>;
@@ -54,12 +58,14 @@ interface LoopState {
 }
 
 export function runAgent(
-  model: LanguageModelV3,
+  modelFactory: ModelFactory,
   registry: ToolRegistry,
   initialPrompt: string,
   options: AgentOptions,
 ): Effect.Effect<void, AgentError> {
   const toolCtx: ToolContext = { cwd: options.cwd };
+  // 当前模型 id：轮次级解析（/model 切换后下一轮生效）
+  let currentModel = options.model;
 
   // Restore discovered tools from session before building toolDefs
   if (options.session) {
@@ -97,6 +103,8 @@ export function runAgent(
   const runToolLoop = (
     messages: ModelMessage[],
   ): Effect.Effect<ModelMessage[], AgentError> => {
+    // 轮次级解析模型：compressMessages 与 streamText 共用；/model 切换从下一轮生效
+    const model = modelFactory(currentModel);
     let compressed = false;
     let compressAttempts = 0;
     const MAX_COMPRESS_ATTEMPTS = 3;
@@ -409,7 +417,21 @@ export function runAgent(
   };
 
   // Slash command dispatcher ("/" 前缀输入在此拦截，不进 LLM；/<skill-name> 快捷执行返回转发文本)
-  const dispatcher = createDefaultCommandDispatcher({ cwd: options.cwd, skills, plugins: options.plugins, channels: options.channels });
+  // /model 命令经 switcher 读写当前模型 id
+  const modelSwitcher = {
+    provider: options.provider ?? "unknown",
+    get: () => currentModel,
+    set: (id: string) => {
+      currentModel = id;
+    },
+  };
+  const dispatcher = createDefaultCommandDispatcher({
+    cwd: options.cwd,
+    skills,
+    plugins: options.plugins,
+    channels: options.channels,
+    model: modelSwitcher,
+  });
 
   // Main conversation loop: tool loop → read input → repeat
   return Effect.gen(function* () {

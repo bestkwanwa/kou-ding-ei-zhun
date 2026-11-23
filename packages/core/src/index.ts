@@ -29,6 +29,6 @@ export { RagStore, createRagService, createEmbedder, fuseResults } from "./rag/i
 export type { RagService, Embedder, RagDoc, RagChunk, RetrievedChunk, IngestSummary } from "./rag/index.js";
 
 export { CommandDispatcher, createDefaultCommandDispatcher, DEFAULT_COMMANDS } from "./commands/index.js";
-export type { Command, CommandContext } from "./commands/index.js";
+export type { Command, CommandContext, ModelSwitcher } from "./commands/index.js";
 
 export { version } from "./version.js";
