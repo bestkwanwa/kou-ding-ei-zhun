@@ -28,9 +28,17 @@ function resolveProvider(name: string): ProviderName {
   throw new Error(`Unknown provider "${name}". Supported: ${Object.keys(PROVIDER_DEFAULTS).join(", ")}`);
 }
 
+/** 无显式 DEFAULT_PROVIDER 时，按已配置的 API key 自动探测（PROVIDER_DEFAULTS 声明序） */
+function detectProviderFromEnv(): ProviderName | null {
+  for (const name of Object.keys(PROVIDER_DEFAULTS) as ProviderName[]) {
+    if (process.env[PROVIDER_DEFAULTS[name].envKey]) return name;
+  }
+  return null;
+}
+
 export function loadConfig(overrides: ConfigOverrides = {}): AppConfig {
   const provider = resolveProvider(
-    overrides.provider || process.env.DEFAULT_PROVIDER || "zhipu"
+    overrides.provider || process.env.DEFAULT_PROVIDER || detectProviderFromEnv() || "zhipu"
   );
   const defaults = PROVIDER_DEFAULTS[provider];
   const model = overrides.model || process.env.DEFAULT_MODEL || defaults.model;
@@ -39,8 +47,11 @@ export function loadConfig(overrides: ConfigOverrides = {}): AppConfig {
   const cwd = overrides.cwd ? path.resolve(overrides.cwd) : process.cwd();
 
   if (!apiKey) {
+    const allKeys = (Object.keys(PROVIDER_DEFAULTS) as ProviderName[])
+      .map((n) => PROVIDER_DEFAULTS[n].envKey)
+      .join(" / ");
     throw new Error(
-      `Missing API key for provider "${provider}". Set ${defaults.envKey} in .env or environment variables.`
+      `Missing API key for provider "${provider}". Set ${defaults.envKey} in .env, or use another provider (${allKeys}) with DEFAULT_PROVIDER.`
     );
   }
 

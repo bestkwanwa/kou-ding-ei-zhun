@@ -23,6 +23,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.143",
+    "@ai-sdk/openai": "^3.0.145",
     "@ai-sdk/provider": "^3.0.10",
     "ai": "^6.0.185",
     "better-sqlite3": "12.4.1",

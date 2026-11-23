@@ -1,6 +1,8 @@
 import type { LanguageModelV3 } from "@ai-sdk/provider";
-import { zhipu, createZhipu } from "zhipu-ai-provider";
-import type { AppConfig } from "../config/index.js";
+import { createZhipu } from "zhipu-ai-provider";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import type { AppConfig, ProviderName } from "../config/index.js";
 import { appendFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -86,28 +88,34 @@ function createLoggingFetch(cwd: string): typeof globalThis.fetch {
   };
 }
 
-const PROVIDER_FACTORIES: Record<string, (config: AppConfig) => ModelFactory> = {
+const PROVIDER_FACTORIES: Record<ProviderName, (config: AppConfig) => ModelFactory> = {
   zhipu(config) {
-    const provider = config.baseUrl
-      ? createZhipu({
-          apiKey: config.apiKey,
-          baseURL: config.baseUrl,
-          fetch: createLoggingFetch(config.cwd),
-        })
-      : createZhipu({
-          apiKey: config.apiKey,
-          fetch: createLoggingFetch(config.cwd),
-        });
+    const provider = createZhipu({
+      apiKey: config.apiKey,
+      ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+      fetch: createLoggingFetch(config.cwd),
+    });
+    return (modelId) => provider(modelId);
+  },
+  openai(config) {
+    const provider = createOpenAI({
+      apiKey: config.apiKey,
+      ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+      fetch: createLoggingFetch(config.cwd),
+    });
+    return (modelId) => provider(modelId);
+  },
+  anthropic(config) {
+    const provider = createAnthropic({
+      apiKey: config.apiKey,
+      ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+      fetch: createLoggingFetch(config.cwd),
+    });
     return (modelId) => provider(modelId);
   },
 };
 
 export function createModelFactory(config: AppConfig): ModelFactory {
-  const factory = PROVIDER_FACTORIES[config.provider];
-  if (!factory) {
-    throw new Error(
-      `Unsupported provider: "${config.provider}". Available: ${Object.keys(PROVIDER_FACTORIES).join(", ")}`
-    );
-  }
-  return factory(config);
+  // 未知供应商已在 loadConfig 的 resolveProvider 处拦截，此处映射为全函数
+  return PROVIDER_FACTORIES[config.provider](config);
 }
