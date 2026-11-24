@@ -25,7 +25,11 @@ export interface PluginToolSpec {
   parameters: Record<string, unknown>;
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<string>;
 
-  /** 是否只读（无副作用），默认 false */
+  /**
+   * 是否只读（无副作用），默认 false。
+   * 安全契约：guest 角色只能调用 readOnly=true 的工具——只读工具漏标会把 guest 挡在外面，
+   * 谎报 readOnly 的变更工具则会暴露给 guest，请如实标注。
+   */
   readOnly?: boolean;
   /** 是否可安全并行执行，默认 false */
   parallelizable?: boolean;

@@ -1,6 +1,7 @@
 import type { SkillManager } from "../skills/index.js";
 import type { PluginManager } from "../plugins/index.js";
 import type { ChannelGateway } from "../channels/index.js";
+import type { SecurityManager } from "../security/index.js";
 
 /** /model 命令的运行时切换句柄（agent 主循环构造注入） */
 export interface ModelSwitcher {
@@ -20,6 +21,8 @@ export interface CommandContext {
   channels?: ChannelGateway;
   /** 模型切换句柄（/model 命令依赖；测试等场景可省略） */
   model?: ModelSwitcher;
+  /** 安全管理器（/security 命令依赖；agent 主循环默认自建，测试等场景可省略） */
+  security?: SecurityManager;
 }
 
 export interface Command {

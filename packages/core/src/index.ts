@@ -31,4 +31,36 @@ export type { RagService, Embedder, RagDoc, RagChunk, RetrievedChunk, IngestSumm
 export { CommandDispatcher, createDefaultCommandDispatcher, DEFAULT_COMMANDS } from "./commands/index.js";
 export type { Command, CommandContext, ModelSwitcher } from "./commands/index.js";
 
+export {
+  SecurityManager,
+  createSecurityManager,
+  RoleManager,
+  BashRiskMonitor,
+  HookManager,
+  createBuiltinHooks,
+  DeniedIntentGuard,
+  extractTargets,
+  evaluatePolicy,
+  isRole,
+  DEFAULT_CHANNEL_ROLE,
+  SECURITY_STATE_FILENAME,
+  SHELL_TOOL_NAME,
+} from "./security/index.js";
+export type {
+  Actor,
+  BeforeHookResult,
+  BeforeHookOutcome,
+  Hook,
+  HookInput,
+  PolicyInput,
+  RiskClassification,
+  RiskLevel,
+  RiskRule,
+  Role,
+  SecurityAction,
+  SecurityDecision,
+  SecurityOptions,
+  SecurityState,
+} from "./security/index.js";
+
 export { version } from "./version.js";

@@ -22,6 +22,8 @@ import { createDefaultCommandDispatcher } from "../commands/index.js";
 import { shouldRunMaintenance } from "../memory/maintenance.js";
 import { createLogger } from "../utils/logger.js";
 import type { ChannelGateway, InboundMessage } from "../channels/index.js";
+import type { SecurityManager } from "../security/index.js";
+import { createSecurityManager } from "../security/index.js";
 import { createAgentInput } from "./input.js";
 import { extractReply } from "./reply.js";
 
@@ -41,6 +43,8 @@ export interface AgentOptions {
   plugins?: PluginManager;
   /** Channel 网关（/channel 命令与渠道消息处理依赖；由 CLI 层创建后传入，退出时 finally stopAll） */
   channels?: ChannelGateway;
+  /** 安全子系统（角色/风险/钩子防线 + /security 命令依赖；缺省时自建默认实例，绝不裸跑） */
+  security?: SecurityManager;
 }
 
 export class AgentError {
@@ -66,6 +70,12 @@ export function runAgent(
   const toolCtx: ToolContext = { cwd: options.cwd };
   // 当前模型 id：轮次级解析（/model 切换后下一轮生效）
   let currentModel = options.model;
+
+  // 安全子系统：缺省自建（绝不裸跑）；getModel 闭包捕获 currentModel，风险分类的 LLM 兜底跟随 /model 切换
+  const security = options.security ?? createSecurityManager({
+    cwd: options.cwd,
+    getModel: () => modelFactory(currentModel),
+  });
 
   // Restore discovered tools from session before building toolDefs
   if (options.session) {
@@ -299,6 +309,7 @@ export function runAgent(
         }
 
         // Execute tools — 不直接输出，执行完后统一按顺序打印
+        // 安全防线串联：角色×风险判定（deny 短路 / warn 即时警告行）→ before hooks（可改写 args）→ 执行 → after hooks → 截断
         const executeTool = (tc: ToolCallPart) =>
           Effect.gen(function* () {
             const tool = registry.get(tc.toolName);
@@ -311,14 +322,57 @@ export function runAgent(
             const args = tc.input as Record<string, unknown>;
             const summary = [args.path, args.command, args.pattern].find((v) => typeof v === "string") ?? "";
 
+            // --- 第一/二层：角色 × 工具 × 风险（fail-closed：check 自身失败按 deny） ---
+            const decision = yield* Effect.tryPromise({
+              try: () => security.check(tool, args),
+              catch: (e) => new AgentError(`Security check for "${tc.toolName}" failed`, e),
+            }).pipe(
+              Effect.catchTag("AgentError", (e) =>
+                Effect.succeed({ action: "deny" as const, reason: `security check error: ${e.message}` }),
+              ),
+            );
+            const actor = security.currentActor;
+            if (decision.action === "deny") {
+              log.log(`[security] denied ${tc.toolName} (${actor.role}/${actor.source}): ${decision.reason}`);
+              const output = `Error: [security] ${decision.reason}`;
+              return { tc, output, summary, isError: true };
+            }
+            if (decision.action === "warn") {
+              // 决策时即时警告（与压缩提示同款风格），不延迟到批量结果打印
+              process.stderr.write(chalk.yellow(`[security] ${decision.reason} — allowed for ${actor.role}\n`));
+            }
+
+            // --- 第三层：before hooks（可 deny 或改写 args；管理器内部隔离抛错，此处兜底 fail-closed） ---
+            const before = yield* Effect.tryPromise({
+              try: () => security.hooks.runBefore({ toolName: tc.toolName, args, actor }),
+              catch: (e) => new AgentError(`Before-hooks for "${tc.toolName}" failed`, e),
+            }).pipe(
+              Effect.catchTag("AgentError", (e) =>
+                Effect.succeed({ decision: { action: "deny" as const, reason: e.message }, args }),
+              ),
+            );
+            if (before.decision.action === "deny") {
+              log.log(`[security] hook denied ${tc.toolName}: ${before.decision.reason ?? "(no reason)"}`);
+              const output = `Error: [security] hook denied ${tc.toolName}: ${before.decision.reason ?? "no reason"}`;
+              return { tc, output, summary, isError: true };
+            }
+            const effectiveArgs = before.args;
+
             let output = yield* Effect.tryPromise({
-              try: () =>
-                tool.execute(tc.input as Record<string, unknown>, toolCtx),
+              try: () => tool.execute(effectiveArgs, toolCtx),
               catch: (e) => new AgentError(`Tool "${tc.toolName}" failed`, e),
             }).pipe(
               Effect.catchTag("AgentError", (e) =>
                 Effect.succeed(`Error: ${e.message}`),
               ),
+            );
+
+            // --- 第三层：after hooks（观察/改写结果；失败保留原结果，不掩盖工具产出） ---
+            output = yield* Effect.tryPromise({
+              try: () => security.hooks.runAfter({ toolName: tc.toolName, args: effectiveArgs, actor }, output),
+              catch: () => new AgentError(`After-hooks for "${tc.toolName}" failed`),
+            }).pipe(
+              Effect.catchTag("AgentError", () => Effect.succeed(output)),
             );
 
             output = registry.truncateResult(tc.toolName, output);
@@ -346,7 +400,8 @@ export function runAgent(
         for (const tc of toolCalls) {
           const r = resultMap.get(tc.toolCallId)!;
           const tag = r.isError ? chalk.red(" ✗") : chalk.green(` ✓ ${r.output.length}c`);
-          process.stderr.write(chalk.blue(`  ↳ ${tc.toolName}${r.summary ? `(${r.summary})` : ""}${tag}\n${chalk.gray(r.output)}\n`));
+          const body = r.isError ? chalk.red(r.output) : chalk.gray(r.output);
+          process.stderr.write(chalk.blue(`  ↳ ${tc.toolName}${r.summary ? `(${r.summary})` : ""}${tag}\n${body}\n`));
         }
 
         // Sync discovered lazy tools into toolDefs for next LLM request
@@ -431,6 +486,7 @@ export function runAgent(
     plugins: options.plugins,
     channels: options.channels,
     model: modelSwitcher,
+    security,
   });
 
   // Main conversation loop: tool loop → read input → repeat
@@ -517,6 +573,10 @@ export function runAgent(
       let replyTo: InboundMessage | undefined;
 
       if (event.type === "terminal") {
+        // actor 先行：本轮所有工具执行与命令分发都以 terminal owner 身份进行；
+        // 同时清空意图记忆——用户再次输入 = 对此前被拒 dangerous 操作的重新授权
+        security.roles.setTerminalActor();
+        security.resetDeniedIntents();
         const trimmed = event.line.trim();
 
         if (!trimmed) {
@@ -537,6 +597,10 @@ export function runAgent(
         llmInput = result.kind === "forward" ? result.text : trimmed;
       } else {
         // 渠道轮次：与终端同一套分发语义（对称）；命令输出回发渠道
+        // actor 先行（按渠道名解析角色，须在 dispatch 之前——/security set 需要 owner 门禁）；
+        // 同 terminal：新用户输入清空意图记忆
+        security.roles.setChannelActor(event.message);
+        security.resetDeniedIntents();
         replyTo = event.message;
         process.stderr.write(chalk.magenta(`[channel:${replyTo.channel}] ${chalk.bold(replyTo.sender)}: ${replyTo.text}\n`));
         const result = dispatcher.dispatch(replyTo.text);
