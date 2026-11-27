@@ -7,6 +7,7 @@ export { pluginCommand } from "./plugin.js";
 export { channelCommand } from "./channel.js";
 export { modelCommand } from "./model.js";
 export { securityCommand } from "./security.js";
+export { cronCommand } from "./cron.js";
 
 import { CommandDispatcher } from "./dispatcher.js";
 import { memoryCommand } from "./memory.js";
@@ -15,6 +16,7 @@ import { pluginCommand } from "./plugin.js";
 import { channelCommand } from "./channel.js";
 import { modelCommand } from "./model.js";
 import { securityCommand } from "./security.js";
+import { cronCommand } from "./cron.js";
 import type { Command } from "./types.js";
 import type { CommandContext } from "./types.js";
 
@@ -26,6 +28,7 @@ export const DEFAULT_COMMANDS: Command[] = [
   channelCommand,
   modelCommand,
   securityCommand,
+  cronCommand,
 ];
 
 /** 创建包含内置命令的 dispatcher */

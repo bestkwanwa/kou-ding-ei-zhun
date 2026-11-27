@@ -2,6 +2,7 @@ import type { SkillManager } from "../skills/index.js";
 import type { PluginManager } from "../plugins/index.js";
 import type { ChannelGateway } from "../channels/index.js";
 import type { SecurityManager } from "../security/index.js";
+import type { CronManager } from "../cron/index.js";
 
 /** /model 命令的运行时切换句柄（agent 主循环构造注入） */
 export interface ModelSwitcher {
@@ -23,6 +24,8 @@ export interface CommandContext {
   model?: ModelSwitcher;
   /** 安全管理器（/security 命令依赖；agent 主循环默认自建，测试等场景可省略） */
   security?: SecurityManager;
+  /** Cron 调度器（/cron 命令依赖；由 CLI 层创建后传入，退出时 finally stop） */
+  cron?: CronManager;
 }
 
 export interface Command {
