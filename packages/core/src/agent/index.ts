@@ -418,6 +418,7 @@ export function runAgent(
     channels: options.channels,
     model: modelSwitcher,
     security,
+    cron: options.cron,
   });
 
   // Main conversation loop: tool loop → read input → repeat
