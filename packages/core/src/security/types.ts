@@ -21,6 +21,12 @@ export const TERMINAL_ROLE: Role = "owner";
 /** security.json 中未配置的渠道默认角色 */
 export const DEFAULT_CHANNEL_ROLE: Role = "guest";
 
+/** cron 定时任务输入来源标识（伪渠道名：角色经 channelRoles["cron"] 配置，可用 /security set cron <role> 调整） */
+export const CRON_SOURCE = "cron";
+
+/** cron 轮次默认角色：无人值守执行，较 guest 宽（safe shell 可用）、较 owner 严（risky 拒绝） */
+export const DEFAULT_CRON_ROLE: Role = "collaborator";
+
 /** 状态文件（<cwd>/.kda/security.json） */
 export const SECURITY_STATE_FILENAME = "security.json";
 

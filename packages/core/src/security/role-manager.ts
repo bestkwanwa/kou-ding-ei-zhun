@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import chalk from "chalk";
 import type { InboundMessage } from "../channels/types.js";
 import {
+  CRON_SOURCE,
   DEFAULT_CHANNEL_ROLE,
+  DEFAULT_CRON_ROLE,
   SECURITY_STATE_FILENAME,
   TERMINAL_ROLE,
   TERMINAL_SOURCE,
@@ -46,6 +48,15 @@ export class RoleManager {
       role: this.getChannelRole(msg.channel),
       source: msg.channel,
       sender: msg.sender,
+    };
+  }
+
+  /** cron 到点事件到达时调用（同上）；"cron" 伪渠道查配置，缺省 collaborator（无人值守受限） */
+  setCronActor(taskId: string): void {
+    this.currentActor = {
+      role: this.readState().channelRoles[CRON_SOURCE] ?? DEFAULT_CRON_ROLE,
+      source: CRON_SOURCE,
+      sender: taskId,
     };
   }
 

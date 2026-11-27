@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAgentInput } from "./input.js";
 import { ChannelGateway } from "../channels/index.js";
+import { CronManager } from "../cron/index.js";
 import type { Channel, ChannelInfo, ChannelStatus, InboundMessage } from "../channels/index.js";
 
 // --- Helpers ---
@@ -54,7 +55,7 @@ describe("createAgentInput (channel events via gateway wiring)", () => {
     const gateway = new ChannelGateway(cwd);
     const channel = new SinkChannel();
     gateway.register(channel);
-    const input = createAgentInput(gateway, { input: new PassThrough(), output: new PassThrough() });
+    const input = createAgentInput(gateway, undefined, { input: new PassThrough(), output: new PassThrough() });
     gateway.start("fake"); // createAgentInput 已接线 sink，此时启动渠道
     return { input, channel };
   }
@@ -115,7 +116,7 @@ describe("createAgentInput (terminal lines via real streams)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "kda-input-stream-"));
     dirs.push(cwd);
     const stdinStream = new PassThrough();
-    const input = createAgentInput(new ChannelGateway(cwd), {
+    const input = createAgentInput(new ChannelGateway(cwd), undefined, {
       input: stdinStream,
       output: new PassThrough(),
     });
@@ -137,13 +138,42 @@ describe("createAgentInput (terminal lines via real streams)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "kda-input-prompt-"));
     dirs.push(cwd);
     const stdoutStream = new PassThrough();
-    const input = createAgentInput(undefined, { input: new PassThrough(), output: stdoutStream });
+    const input = createAgentInput(undefined, undefined, { input: new PassThrough(), output: stdoutStream });
 
     input.prompt();
     const chunk = await new Promise<string>((resolve) => {
       stdoutStream.once("data", (c) => resolve(c.toString()));
     });
     expect(chunk).toContain("> ");
+    input.close();
+  });
+});
+
+describe("createAgentInput (cron due events via manager wiring)", () => {
+  let dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    dirs = [];
+  });
+
+  it("delivers cron triggers through the same FIFO", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kda-input-cron-"));
+    dirs.push(cwd);
+    let t = 1_700_000_000_000;
+    const cron = new CronManager(cwd, { now: () => new Date(t) });
+    const input = createAgentInput(undefined, cron, { input: new PassThrough(), output: new PassThrough() });
+    cron.addTask({
+      kind: "bash",
+      schedule: { type: "interval", ms: 60_000 },
+      scheduleExpr: "every 60s",
+      payload: "echo x",
+    });
+
+    const p = input.next(); // 先挂起等待，再触发：验证到点事件唤醒消费者
+    t += 61_000;
+    cron.runDueChecks(new Date(t));
+    await expect(p).resolves.toMatchObject({ type: "cron", trigger: { kind: "bash", payload: "echo x" } });
     input.close();
   });
 });

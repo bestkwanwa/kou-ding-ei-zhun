@@ -25,6 +25,9 @@ export type { PluginContext, PluginDefinition, PluginInfo, PluginStatus, PluginT
 export { ChannelGateway, createDefaultChannelGateway, createWebChannel, DEFAULT_WEB_CHANNEL_PORT } from "./channels/index.js";
 export type { Channel, ChannelInfo, ChannelStatus, InboundMessage, OutboundMessage, WebChannelOptions } from "./channels/index.js";
 
+export { CronManager, createDefaultCronManager, parseCronExpr, parseDuration, parseTimeArg, nextRunAfter } from "./cron/index.js";
+export type { CronManagerOptions, AddTaskSpec, AddTaskResult, CompleteRunResult, CronTask, CronRun, CronSchedule, CronTrigger, CronTaskKind, CronTaskStatus, CronRunStatus, CronTriggerSource } from "./cron/index.js";
+
 export { RagStore, createRagService, createEmbedder, fuseResults } from "./rag/index.js";
 export type { RagService, Embedder, RagDoc, RagChunk, RetrievedChunk, IngestSummary } from "./rag/index.js";
 

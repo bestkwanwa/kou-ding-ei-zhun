@@ -1,11 +1,13 @@
 import * as readline from "node:readline";
 import chalk from "chalk";
 import type { ChannelGateway, InboundMessage } from "../channels/index.js";
+import type { CronManager, CronTrigger } from "../cron/index.js";
 
-/** 终端行与渠道消息统一为同一事件流（主循环单消费者，串行处理） */
+/** 终端行、渠道消息与 cron 到点统一为同一事件流（主循环单消费者，串行处理） */
 export type AgentInputEvent =
   | { type: "terminal"; line: string }
-  | { type: "channel"; message: InboundMessage };
+  | { type: "channel"; message: InboundMessage }
+  | { type: "cron"; trigger: CronTrigger };
 
 export interface AgentInput {
   /** 显示提示符（每轮循环调用一次） */
@@ -23,11 +25,16 @@ export interface AgentInputStreams {
 
 /**
  * 统一输入源：readline 永久监听 "line"（逐次 rl.question 无法与渠道消息竞争，
- * 且遗留的孤儿 question 回调会偷走下一行输入），渠道消息经 gateway.setOnInbound 接入同一 FIFO。
+ * 且遗留的孤儿 question 回调会偷走下一行输入），渠道消息经 gateway.setOnInbound、
+ * cron 到点经 cron.setOnDue 接入同一 FIFO。
  * 相对旧实现的两个改进：LLM 回合中键入的行入队不丢；stdin EOF（close）→ 空 terminal
  * 事件走既有空行退出路径，管道 stdin 不再只处理首行。
  */
-export function createAgentInput(gateway?: ChannelGateway, streams?: AgentInputStreams): AgentInput {
+export function createAgentInput(
+  gateway?: ChannelGateway,
+  cron?: CronManager,
+  streams?: AgentInputStreams,
+): AgentInput {
   const rl = readline.createInterface({
     input: streams?.input ?? process.stdin,
     output: streams?.output ?? process.stdout,
@@ -55,6 +62,8 @@ export function createAgentInput(gateway?: ChannelGateway, streams?: AgentInputS
   });
 
   gateway?.setOnInbound((message) => push({ type: "channel", message }));
+  // cron 到点事件与渠道消息对称接入（fireRun 在 manager 侧同步发起）
+  cron?.setOnDue((trigger) => push({ type: "cron", trigger }));
 
   return {
     prompt() {

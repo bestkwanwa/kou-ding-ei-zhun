@@ -23,9 +23,12 @@ import { shouldRunMaintenance } from "../memory/maintenance.js";
 import { createLogger } from "../utils/logger.js";
 import type { ChannelGateway, InboundMessage } from "../channels/index.js";
 import type { SecurityManager } from "../security/index.js";
-import { createSecurityManager } from "../security/index.js";
+import { createSecurityManager, SHELL_TOOL_NAME } from "../security/index.js";
+import type { CronManager, CronTrigger } from "../cron/index.js";
 import { createAgentInput } from "./input.js";
 import { extractReply } from "./reply.js";
+import { executeToolCall } from "./execute-tool.js";
+import { AgentError } from "./errors.js";
 
 export interface AgentOptions {
   cwd: string;
@@ -45,15 +48,11 @@ export interface AgentOptions {
   channels?: ChannelGateway;
   /** 安全子系统（角色/风险/钩子防线 + /security 命令依赖；缺省时自建默认实例，绝不裸跑） */
   security?: SecurityManager;
+  /** Cron 调度器（/cron 命令与定时触发依赖；由 CLI 层创建后传入，退出时 finally stop） */
+  cron?: CronManager;
 }
 
-export class AgentError {
-  readonly _tag = "AgentError";
-  constructor(
-    readonly message: string,
-    readonly cause?: unknown,
-  ) {}
-}
+export { AgentError } from "./errors.js";
 
 interface LoopState {
   messages: ModelMessage[];
@@ -309,77 +308,9 @@ export function runAgent(
         }
 
         // Execute tools — 不直接输出，执行完后统一按顺序打印
-        // 安全防线串联：角色×风险判定（deny 短路 / warn 即时警告行）→ before hooks（可改写 args）→ 执行 → after hooks → 截断
+        // 安全管线本体在 execute-tool.ts（cron 的 bash 任务复用同一条防线）
         const executeTool = (tc: ToolCallPart) =>
-          Effect.gen(function* () {
-            const tool = registry.get(tc.toolName);
-            if (!tool) {
-              log.log(`[tool-error] unknown tool: ${tc.toolName}`);
-              const output = `Error: unknown tool "${tc.toolName}"`;
-              return { tc, output, summary: "", isError: true };
-            }
-
-            const args = tc.input as Record<string, unknown>;
-            const summary = [args.path, args.command, args.pattern].find((v) => typeof v === "string") ?? "";
-
-            // --- 第一/二层：角色 × 工具 × 风险（fail-closed：check 自身失败按 deny） ---
-            const decision = yield* Effect.tryPromise({
-              try: () => security.check(tool, args),
-              catch: (e) => new AgentError(`Security check for "${tc.toolName}" failed`, e),
-            }).pipe(
-              Effect.catchTag("AgentError", (e) =>
-                Effect.succeed({ action: "deny" as const, reason: `security check error: ${e.message}` }),
-              ),
-            );
-            const actor = security.currentActor;
-            if (decision.action === "deny") {
-              log.log(`[security] denied ${tc.toolName} (${actor.role}/${actor.source}): ${decision.reason}`);
-              const output = `Error: [security] ${decision.reason}`;
-              return { tc, output, summary, isError: true };
-            }
-            if (decision.action === "warn") {
-              // 决策时即时警告（与压缩提示同款风格），不延迟到批量结果打印
-              process.stderr.write(chalk.yellow(`[security] ${decision.reason} — allowed for ${actor.role}\n`));
-            }
-
-            // --- 第三层：before hooks（可 deny 或改写 args；管理器内部隔离抛错，此处兜底 fail-closed） ---
-            const before = yield* Effect.tryPromise({
-              try: () => security.hooks.runBefore({ toolName: tc.toolName, args, actor }),
-              catch: (e) => new AgentError(`Before-hooks for "${tc.toolName}" failed`, e),
-            }).pipe(
-              Effect.catchTag("AgentError", (e) =>
-                Effect.succeed({ decision: { action: "deny" as const, reason: e.message }, args }),
-              ),
-            );
-            if (before.decision.action === "deny") {
-              log.log(`[security] hook denied ${tc.toolName}: ${before.decision.reason ?? "(no reason)"}`);
-              const output = `Error: [security] hook denied ${tc.toolName}: ${before.decision.reason ?? "no reason"}`;
-              return { tc, output, summary, isError: true };
-            }
-            const effectiveArgs = before.args;
-
-            let output = yield* Effect.tryPromise({
-              try: () => tool.execute(effectiveArgs, toolCtx),
-              catch: (e) => new AgentError(`Tool "${tc.toolName}" failed`, e),
-            }).pipe(
-              Effect.catchTag("AgentError", (e) =>
-                Effect.succeed(`Error: ${e.message}`),
-              ),
-            );
-
-            // --- 第三层：after hooks（观察/改写结果；失败保留原结果，不掩盖工具产出） ---
-            output = yield* Effect.tryPromise({
-              try: () => security.hooks.runAfter({ toolName: tc.toolName, args: effectiveArgs, actor }, output),
-              catch: () => new AgentError(`After-hooks for "${tc.toolName}" failed`),
-            }).pipe(
-              Effect.catchTag("AgentError", () => Effect.succeed(output)),
-            );
-
-            output = registry.truncateResult(tc.toolName, output);
-            log.log(`[tool-result] ${tc.toolName}:`, output);
-
-            return { tc, output, summary, isError: output.startsWith("Error") };
-          });
+          executeToolCall(tc, { registry, security, toolCtx, log });
 
         // 分组执行：可并行的工具无限制并发，不可并行的串行
         const parallelCalls = toolCalls.filter((tc) => parallelizableNames.has(tc.toolName));
@@ -493,7 +424,7 @@ export function runAgent(
   return Effect.gen(function* () {
     log.clear();
     // 统一输入源：终端行与渠道消息进同一 FIFO，单消费者串行处理（见 input.ts）
-    const input = createAgentInput(options.channels);
+    const input = createAgentInput(options.channels, options.cron);
 
     // Initialize session state
     let sessionId: string;
@@ -595,6 +526,46 @@ export function runAgent(
           continue;
         }
         llmInput = result.kind === "forward" ? result.text : trimmed;
+      } else if (event.type === "cron") {
+        // cron 轮次：受限 actor（默认 collaborator，仅 safe shell）+ 清空意图记忆。
+        // 不进交互 session 历史、不 saveSession；输出落 run 记录（/cron runs 可查）
+        const t = event.trigger;
+        const cron = options.cron;
+        security.roles.setCronActor(t.taskId);
+        security.resetDeniedIntents();
+        process.stderr.write(
+          chalk.blue(`[cron:${t.name ?? t.taskId}] firing (${t.kind}): ${t.payload.split("\n")[0].slice(0, 80)}\n`),
+        );
+        if (t.kind === "prompt") {
+          // 隔离轮次（独立历史）；AgentError 记 failed，不让定时任务崩掉交互进程
+          const outcome = yield* runToolLoop([
+            { role: "user" as const, content: t.payload },
+          ]).pipe(
+            Effect.map((h) => ({ ok: true as const, output: extractReply(0, h) })),
+            Effect.catchTag("AgentError", (e) => Effect.succeed({ ok: false as const, error: e.message })),
+          );
+          cron?.completeRun(t.runId, outcome);
+        } else {
+          // bash 任务：复用主循环同一条安全管线（角色×风险 → hooks → 执行 → hooks）
+          const res = yield* executeToolCall(
+            {
+              type: "tool-call",
+              toolCallId: `cron_${t.runId}`,
+              toolName: SHELL_TOOL_NAME,
+              input: { command: t.payload },
+            },
+            { registry, security, toolCtx, log },
+          );
+          // run_command 非零退出不抛错而是返回 "Exit code: non-zero" 开头的文本 → 同样判失败
+          const failed = res.isError || res.output.startsWith("Exit code: non-zero");
+          cron?.completeRun(
+            t.runId,
+            failed
+              ? { ok: false, output: res.output, error: res.output.split("\n")[0] }
+              : { ok: true, output: res.output },
+          );
+        }
+        continue;
       } else {
         // 渠道轮次：与终端同一套分发语义（对称）；命令输出回发渠道
         // actor 先行（按渠道名解析角色，须在 dispatch 之前——/security set 需要 owner 门禁）；

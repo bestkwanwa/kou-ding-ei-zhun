@@ -70,6 +70,8 @@ export class CronManager {
   private readonly log: Logger;
   private timer: ReturnType<typeof setInterval> | null = null;
   private onDue: ((t: CronTrigger) => void) | null = null;
+  /** 消费者接线前（start() 早于 runAgent 的输入层）暂存的到点事件，setOnDue 时冲刷 */
+  private pendingTriggers: CronTrigger[] = [];
   /** 执行中任务的内存集合（防同任务并发；落盘状态为 run.status === "running"） */
   private runningTaskIds = new Set<string>();
 
@@ -79,9 +81,11 @@ export class CronManager {
     this.log = createLogger(cwd);
   }
 
-  /** 注入到点 sink（agent 的输入多路复用器启动时接线） */
+  /** 注入到点 sink（agent 的输入多路复用器启动时接线）；冲刷接线前暂存的到点事件 */
   setOnDue(cb: (t: CronTrigger) => void): void {
     this.onDue = cb;
+    const queued = this.pendingTriggers.splice(0);
+    for (const t of queued) cb(t);
   }
 
   /**
@@ -305,11 +309,10 @@ export class CronManager {
     this.advanceSchedule(task, now);
     this.writeState(state);
     this.log.log(`[cron] fire ${task.id} (${trigger}) run=${runId}`);
-    if (this.onDue) {
-      this.onDue({ runId, taskId: task.id, name: task.name, kind: task.kind, payload: task.payload });
-    } else {
-      console.warn(chalk.yellow(`[cron] due task ${task.id} dropped (no consumer)`));
-    }
+    const t: CronTrigger = { runId, taskId: task.id, name: task.name, kind: task.kind, payload: task.payload };
+    // 消费者可能尚未接线（start() 的补跑早于 agent 输入层）：暂存待冲刷，不丢事件
+    if (this.onDue) this.onDue(t);
+    else this.pendingTriggers.push(t);
   }
 
   /** 推进 nextRunAt（从 from 起算）；once 型触发即终态 done；一年内不再触发的表达式 → null */
